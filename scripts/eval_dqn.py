@@ -4,8 +4,9 @@ Generalization evaluation: episode ``i`` is played on the map drawn with
 ``map_seed = seed + i``, so a given seed range always scores the same map
 set (the default ``--episodes 100 --seed 1000`` matches the baseline's
 map seeds 1000-1099). Uses the same wrapper stack as training
-(SwingDecisionWrapper): the deterministic policy is queried only at real
-decision points -- while the hook is SWINGING -- where WAIT advances up
+(SwingAdvanceDecisionWrapper): the deterministic policy is queried only
+at real decision points -- while the hook is SWINGING, never at the angle
+a FIRE just launched from (post-FIRE advance) -- where WAIT advances up
 to 10 physics ticks and FIRE auto-plays the whole extend/retract round
 trip as one variable-length transition. Without ``--render`` it runs
 headless at full speed; with ``--render`` the env auto-renders every
@@ -26,11 +27,11 @@ import numpy as np
 from stable_baselines3 import DQN
 
 from gold_miner_sim.env import GoldMinerEnv
-from gold_miner_sim.wrappers import SwingDecisionWrapper
+from gold_miner_sim.wrappers import SwingAdvanceDecisionWrapper
 
 
 def run_episode(
-    env: SwingDecisionWrapper, model: DQN, map_seed: int, render: bool
+    env: SwingAdvanceDecisionWrapper, model: DQN, map_seed: int, render: bool
 ) -> float:
     """Run one episode on the map drawn from ``map_seed``.
 
@@ -61,8 +62,8 @@ def main() -> None:
     parser.add_argument(
         "--model",
         type=str,
-        default="models/dqn_gold_miner_swing.zip",
-        help="path to the saved model zip (default: models/dqn_gold_miner_swing.zip)",
+        default="models/dqn_gold_miner_advance.zip",
+        help="path to the saved model zip (default: models/dqn_gold_miner_advance.zip)",
     )
     parser.add_argument(
         "--episodes",
@@ -93,7 +94,7 @@ def main() -> None:
         args.episodes if args.episodes is not None else (1 if args.render else 100)
     )
 
-    env: SwingDecisionWrapper = SwingDecisionWrapper(
+    env: SwingAdvanceDecisionWrapper = SwingAdvanceDecisionWrapper(
         GoldMinerEnv(
             render_mode="human" if args.render else None, map_mode="random"
         )

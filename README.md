@@ -36,15 +36,21 @@ across runs if it is scored on exactly these maps.
 - Milestones 2-3 trained and evaluated on `DecisionIntervalWrapper`
   (`src/gold_miner_sim/wrappers.py`): every agent action is repeated for
   a fixed 10 physics ticks per `step()`. It is kept as a baseline.
-- From Milestone 4 on, training and evaluation use
-  `SwingDecisionWrapper`: the agent only decides while the hook is
-  SWINGING. `WAIT` advances the simulation by up to 10 ticks; `FIRE`
-  automatically plays out the whole extend/retract round trip and puts
-  all accumulated reward into that single transition (transitions are
-  variable-length by design).
+- Milestone 4 used `SwingDecisionWrapper`: the agent only decides while
+  the hook is SWINGING. `WAIT` advances the simulation by up to 10 ticks;
+  `FIRE` automatically plays out the whole extend/retract round trip and
+  puts all accumulated reward into that single transition (transitions
+  are variable-length by design). It exposed an angle-pinning loop: after
+  a FIRE the hook returns to the exact firing angle, so the next decision
+  observation is identical to the previous one.
+- From Milestone 5 on, training and evaluation use
+  `SwingAdvanceDecisionWrapper`, which keeps those semantics but, after a
+  completed FIRE cycle, swings on for another 10 WAIT ticks before
+  returning. The next decision is therefore never taken at the original
+  firing angle.
 
-Random-baseline numbers from the Milestone 3 `DecisionIntervalWrapper`
-setup are not directly comparable and need to be re-measured.
+Random-baseline numbers from earlier wrapper setups are not directly
+comparable and need to be re-measured per wrapper.
 
 ## Commands
 
@@ -62,12 +68,12 @@ uv run python scripts/demo_episode.py --headless
 uv run --group train python scripts/random_baseline.py --episodes 100 --seed 1000
 
 # Train DQN for 200,000 steps on random maps
-# -> models/dqn_gold_miner_swing.zip + Monitor logs in runs/dqn_swing/
+# -> models/dqn_gold_miner_advance.zip + Monitor logs in runs/dqn_advance/
 uv run --group train python scripts/train_dqn.py --timesteps 200000 --seed 0
 
 # Evaluate the trained agent headless over 100 random maps (map seeds 1000-1099)
-uv run --group train python scripts/eval_dqn.py --model models/dqn_gold_miner_swing.zip --episodes 100 --seed 1000
+uv run --group train python scripts/eval_dqn.py --model models/dqn_gold_miner_advance.zip --episodes 100 --seed 1000
 
 # Replay the trained agent in a Pygame window on the map from seed 1007 (~60 s real time)
-uv run --group train python scripts/eval_dqn.py --model models/dqn_gold_miner_swing.zip --seed 1007 --render
+uv run --group train python scripts/eval_dqn.py --model models/dqn_gold_miner_advance.zip --seed 1007 --render
 ```

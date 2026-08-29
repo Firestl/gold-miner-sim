@@ -2,9 +2,10 @@
 
 Samples a uniformly random action (WAIT/FIRE) at every decision step and
 reports the score distribution over a number of headless episodes on
-random maps. With ``SwingDecisionWrapper`` the random policy only chooses
-at real decision points -- while the hook is SWINGING -- so its numbers
-are not directly comparable to the Milestone 3 ``DecisionIntervalWrapper``
+random maps. With ``SwingAdvanceDecisionWrapper`` the random policy only
+chooses at real decision points -- while the hook is SWINGING, never at
+the angle a FIRE just launched from (post-FIRE advance) -- so its numbers
+are not directly comparable to the Milestone 4 ``SwingDecisionWrapper``
 baseline and must be re-measured. Episode ``i`` is played on the map
 drawn with ``map_seed = seed + i``, so the default
 ``--episodes 100 --seed 1000`` covers map seeds 1000-1099 — the same map
@@ -24,10 +25,10 @@ import argparse
 import numpy as np
 
 from gold_miner_sim.env import GoldMinerEnv
-from gold_miner_sim.wrappers import SwingDecisionWrapper
+from gold_miner_sim.wrappers import SwingAdvanceDecisionWrapper
 
 
-def run_episode(env: SwingDecisionWrapper, map_seed: int) -> float:
+def run_episode(env: SwingAdvanceDecisionWrapper, map_seed: int) -> float:
     """Run one headless episode with a uniformly random policy.
 
     Resets the environment with ``map_seed`` (which fixes the random map
@@ -69,7 +70,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    env: SwingDecisionWrapper = SwingDecisionWrapper(
+    env: SwingAdvanceDecisionWrapper = SwingAdvanceDecisionWrapper(
         GoldMinerEnv(render_mode=None, map_mode="random")
     )
     # Seed the action RNG once for the whole run; re-seeding per episode

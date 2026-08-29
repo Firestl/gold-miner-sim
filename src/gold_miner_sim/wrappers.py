@@ -9,6 +9,11 @@ ticks are summed; the loop stops early as soon as any underlying tick ends.
 decision behaves like the above, while its ``FIRE`` decision automatically
 runs until the hook returns to the swinging phase (variable-length
 transition; see the class docstring).
+
+``SwingAdvanceDecisionWrapper`` keeps those semantics but, after a
+completed FIRE cycle, swings on for another ``ADVANCE_INTERVAL`` WAIT
+ticks before returning, so the next decision is never taken at the
+original firing angle (anti angle-pinning; see the class docstring).
 """
 
 from __future__ import annotations
@@ -23,6 +28,7 @@ from gold_miner_sim.env import FIRE, WAIT, HookState
 
 DECISION_INTERVAL = 10  # Physics ticks executed per agent decision (1/6 s).
 SWING_WAIT_INTERVAL = 10  # Max physics ticks executed per WAIT decision.
+ADVANCE_INTERVAL = 10  # Post-FIRE SWINGING WAIT ticks before returning.
 
 
 class DecisionIntervalWrapper(gymnasium.Wrapper):
@@ -112,6 +118,87 @@ class SwingDecisionWrapper(gymnasium.Wrapper):
             ):
                 obs, reward, terminated, truncated, info = self.env.step(WAIT)
                 total_reward += reward
+            return obs, total_reward, terminated, truncated, info
+
+        for _ in range(SWING_WAIT_INTERVAL):
+            obs, reward, terminated, truncated, info = self.env.step(WAIT)
+            total_reward += reward
+            if terminated or truncated:
+                break
+        return obs, total_reward, terminated, truncated, info
+
+    def reset(
+        self,
+        *,
+        seed: int | None = None,
+        options: dict[str, Any] | None = None,
+    ) -> tuple[NDArray[np.float32], dict[str, Any]]:
+        return self.env.reset(seed=seed, options=options)
+
+
+class SwingAdvanceDecisionWrapper(gymnasium.Wrapper):
+    """Gold Miner wrapper: after a FIRE cycle, swing on before deciding.
+
+    Same decision semantics as :class:`SwingDecisionWrapper`, plus one
+    rule: once a FIRE decision's extend/retract cycle has completed and the
+    hook is back in ``HookState.SWINGING``, this wrapper keeps issuing WAIT
+    for another ``ADVANCE_INTERVAL`` physics ticks before returning. The
+    next decision observation therefore sits at a swung-on angle instead of
+    the original firing angle, which removes the structural angle-pinning
+    loop observed in Milestone 4 (FIRE -> identical observation -> FIRE
+    again at the same angle). The advance reuses the underlying swing
+    physics, boundary reflection at -70/+70 deg included; the wrapper never
+    computes angles itself.
+
+    ``step(WAIT)`` executes at most ``SWING_WAIT_INTERVAL`` underlying WAIT
+    ticks, exactly as ``SwingDecisionWrapper.step(WAIT)``. ``step(FIRE)``
+    returns immediately when the episode ends during the FIRE cycle (no
+    advance is executed) or, otherwise, after the ``ADVANCE_INTERVAL``
+    advance ticks, cutting the advance short at the first episode-ending
+    tick. Rewards of all executed ticks are summed; the observation, info
+    and end flags come from the last executed tick.
+
+    Transitions are variable-length by design; no duration-aware
+    discounting or tick-count correction is applied. Actions are validated
+    with ``action_space.contains`` — the same strict ``Discrete(2)``
+    contract as the underlying env, which rejects e.g. float actions that
+    compare equal to WAIT/FIRE — and never silently act as WAIT.
+    Action and observation spaces are inherited from the env.
+    """
+
+    def step(
+        self, action: int | np.integer[Any]
+    ) -> tuple[NDArray[np.float32], float, bool, bool, dict[str, Any]]:
+        # contains() matches the underlying env: ``action == WAIT`` would
+        # also accept floats like 0.0/1.0 that Discrete(2) does not contain.
+        if not self.action_space.contains(action):
+            raise ValueError(
+                f"invalid action {action!r}, expected 0 (WAIT) or 1 (FIRE)"
+            )
+
+        total_reward = 0.0
+        if action == FIRE:
+            # Phase A -- the FIRE cycle, identical to SwingDecisionWrapper:
+            # one FIRE tick, then WAIT ticks until the exact tick the hook is
+            # back SWINGING or the first episode-ending tick.
+            obs, reward, terminated, truncated, info = self.env.step(FIRE)
+            total_reward += reward
+            hook_env = self.env.unwrapped
+            while not (terminated or truncated) and (
+                hook_env.hook_state is not HookState.SWINGING
+            ):
+                obs, reward, terminated, truncated, info = self.env.step(WAIT)
+                total_reward += reward
+            if terminated or truncated:
+                # Episode ended mid-cycle: never run the post-FIRE advance.
+                return obs, total_reward, terminated, truncated, info
+            # Phase B -- post-FIRE advance: swing on by ADVANCE_INTERVAL WAIT
+            # ticks so the returned angle differs from the firing angle.
+            for _ in range(ADVANCE_INTERVAL):
+                obs, reward, terminated, truncated, info = self.env.step(WAIT)
+                total_reward += reward
+                if terminated or truncated:
+                    break
             return obs, total_reward, terminated, truncated, info
 
         for _ in range(SWING_WAIT_INTERVAL):
