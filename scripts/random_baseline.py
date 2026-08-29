@@ -1,17 +1,14 @@
 """Random-policy baseline for the Gold Miner environment.
 
 Samples a uniformly random action (WAIT/FIRE) at every decision step and
-reports the score distribution over a number of headless episodes on
-random maps. With ``SwingAdvanceDecisionWrapper`` the random policy only
-chooses at real decision points -- while the hook is SWINGING, never at
-the angle a FIRE just launched from (post-FIRE advance) -- so its numbers
-are not directly comparable to the Milestone 4 ``SwingDecisionWrapper``
-baseline and must be re-measured. Episode ``i`` is played on the map
-drawn with ``map_seed = seed + i``, so the default
-``--episodes 100 --seed 1000`` covers map seeds 1000-1099 — the same map
-set ``eval_dqn.py`` uses by default. The action space RNG is seeded once
-per run (not per episode), so different maps see different action
-sequences.
+reports the score distribution over 100 headless episodes on random maps.
+The ``SwingAdvanceDecisionWrapper`` still chooses only at real decision
+points, and ``FireBudgetWrapper(max_fires=3)`` limits each episode to three
+FIRE actions. Episode ``i`` is played on the map drawn with
+``map_seed = seed + i``, so the default ``--episodes 100 --seed 1000``
+covers map seeds 1000-1099 — the same map set ``eval_dqn.py`` uses. The
+action space RNG is seeded once per run (not per episode), so different maps
+see different action sequences.
 
 Usage:
     uv run --group train python scripts/random_baseline.py
@@ -25,16 +22,17 @@ import argparse
 import numpy as np
 
 from gold_miner_sim.env import GoldMinerEnv
-from gold_miner_sim.wrappers import SwingAdvanceDecisionWrapper
+from gold_miner_sim.wrappers import FireBudgetWrapper, SwingAdvanceDecisionWrapper
+
+FULL_SCORE = 800.0
 
 
-def run_episode(env: SwingAdvanceDecisionWrapper, map_seed: int) -> float:
+def run_episode(env: FireBudgetWrapper, map_seed: int) -> float:
     """Run one headless episode with a uniformly random policy.
 
     Resets the environment with ``map_seed`` (which fixes the random map
     layout), then samples an action from the pre-seeded action space at
-    every decision step -- each time the hook is back SWINGING -- until
-    the episode ends.
+    every decision step until the three-FIRE budget or the episode ends.
 
     Returns the final score (accumulated decision-step reward).
     """
@@ -47,6 +45,32 @@ def run_episode(env: SwingAdvanceDecisionWrapper, map_seed: int) -> float:
         _obs, reward, terminated, truncated, _info = env.step(action)
         episode_score += float(reward)
     return episode_score
+
+
+def summarize_scores(scores: list[float]) -> dict[str, float | int]:
+    """Return the benchmark metrics for a non-empty score list."""
+    if not scores:
+        raise ValueError("at least one episode is required")
+    values = np.asarray(scores, dtype=np.float64)
+    full_score_count = int(np.count_nonzero(values == FULL_SCORE))
+    return {
+        "mean": float(np.mean(values)),
+        "std": float(np.std(values)),
+        "min": float(np.min(values)),
+        "max": float(np.max(values)),
+        "full_score_count": full_score_count,
+        "full_score_rate": full_score_count / len(scores),
+    }
+
+
+def print_metrics(metrics: dict[str, float | int]) -> None:
+    """Print benchmark metrics using stable, machine-readable field names."""
+    print(f"mean: {metrics['mean']:.2f}")
+    print(f"std: {metrics['std']:.2f}")
+    print(f"min: {metrics['min']:.2f}")
+    print(f"max: {metrics['max']:.2f}")
+    print(f"full_score_count: {metrics['full_score_count']}")
+    print(f"full_score_rate: {metrics['full_score_rate']:.2f}")
 
 
 def main() -> None:
@@ -70,8 +94,11 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    env: SwingAdvanceDecisionWrapper = SwingAdvanceDecisionWrapper(
-        GoldMinerEnv(render_mode=None, map_mode="random")
+    env = FireBudgetWrapper(
+        SwingAdvanceDecisionWrapper(
+            GoldMinerEnv(render_mode=None, map_mode="random")
+        ),
+        max_fires=3,
     )
     # Seed the action RNG once for the whole run; re-seeding per episode
     # would replay the same action sequence on every map.
@@ -82,12 +109,9 @@ def main() -> None:
     ]
     env.close()
 
-    print(f"Episodes: {len(scores)}")
-    print(f"Seed range: {args.seed}-{args.seed + args.episodes - 1}")
-    print(f"Mean score: {sum(scores) / len(scores):.2f}")
-    print(f"Std score: {float(np.std(scores)):.2f}")
-    print(f"Min score: {min(scores):.2f}")
-    print(f"Max score: {max(scores):.2f}")
+    print(f"episodes: {len(scores)}")
+    print(f"seed_range: {args.seed}-{args.seed + args.episodes - 1}")
+    print_metrics(summarize_scores(scores))
 
 
 if __name__ == "__main__":

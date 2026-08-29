@@ -3,18 +3,21 @@
 Trains on ``map_mode="random"`` so the policy generalizes across map
 layouts: every reset draws the three spawn points from RANDOM_SPAWN_POINTS
 through the Gymnasium-seeded RNG. Builds the environment chain
-``GoldMinerEnv -> SwingAdvanceDecisionWrapper -> Monitor``: like
+``GoldMinerEnv -> SwingAdvanceDecisionWrapper -> FireBudgetWrapper -> Monitor``:
+like
 Milestone 4's SwingDecisionWrapper the agent decides only while the hook
 is SWINGING (WAIT advances up to 10 physics ticks, FIRE auto-plays the
 whole extend/retract round trip), but after a completed FIRE cycle the
 wrapper swings on for another 10 WAIT ticks before returning, so the next
 decision is never taken at the original firing angle (anti angle-pinning).
+The outer wrapper limits each episode to three FIRE actions and appends the
+normalized FIRE budget to the observation.
 Trains SB3's DQN with default hyperparameters except the few set below,
-and saves the policy. Monitor logs go to ``runs/dqn_advance/``.
+and saves the policy. Monitor logs go to ``runs/dqn_fire_budget/``.
 
 Usage:
     uv run --group train python scripts/train_dqn.py
-    uv run --group train python scripts/train_dqn.py --timesteps 50000 --seed 1
+    uv run --group train python scripts/train_dqn.py --timesteps 200000 --seed 1
 """
 
 from __future__ import annotations
@@ -26,9 +29,9 @@ from stable_baselines3 import DQN
 from stable_baselines3.common.monitor import Monitor
 
 from gold_miner_sim.env import GoldMinerEnv
-from gold_miner_sim.wrappers import SwingAdvanceDecisionWrapper
+from gold_miner_sim.wrappers import FireBudgetWrapper, SwingAdvanceDecisionWrapper
 
-MONITOR_LOG_DIR = "runs/dqn_advance"
+MONITOR_LOG_DIR = "runs/dqn_fire_budget"
 MONITOR_LOG_FILENAME = os.path.join(MONITOR_LOG_DIR, "monitor")
 
 
@@ -54,15 +57,24 @@ def main() -> None:
     parser.add_argument(
         "--output",
         type=str,
-        default="models/dqn_gold_miner_advance.zip",
-        help="path to save the trained model zip (default: models/dqn_gold_miner_advance.zip)",
+        default="models/dqn_gold_miner_fire_budget.zip",
+        help=(
+            "path to save the trained model zip "
+            "(default: models/dqn_gold_miner_fire_budget.zip)"
+        ),
     )
     args = parser.parse_args()
 
     os.makedirs(MONITOR_LOG_DIR, exist_ok=True)
+    output_dir = os.path.dirname(args.output)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
     env = Monitor(
-        SwingAdvanceDecisionWrapper(
-            GoldMinerEnv(render_mode=None, map_mode="random")
+        FireBudgetWrapper(
+            SwingAdvanceDecisionWrapper(
+                GoldMinerEnv(render_mode=None, map_mode="random")
+            ),
+            max_fires=3,
         ),
         filename=MONITOR_LOG_FILENAME,
     )
