@@ -20,3 +20,6 @@ build-backend = "uv_build"
 dev = [
     "pytest>=9.1.1",
 ]
+train = [
+    "stable-baselines3[extra]",
+]
