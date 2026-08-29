@@ -1,21 +1,13 @@
-"""Run the Issue #13 paired Full/Blind observation ablation.
+"""Run the Issue #13 paired Full/Blind observation ablation sequentially.
 
 For every training seed this script trains one DQN agent per observation
 mode (``full`` before ``blind``), evaluates it on the benchmark maps, and
-collects the results into ``runs/ablation/results.json``. Each run spawns
-two child processes (train then eval); their stdout/stderr goes to per-run
-log files ``runs/ablation/{mode}/seed_{seed}/train.log`` and
-``runs/ablation/{mode}/seed_{seed}/eval.log`` instead of the terminal. Each
-child writes its own model under ``models/ablation/{mode}/seed_{seed}.zip``,
-its Monitor CSV under ``runs/ablation/{mode}/seed_{seed}/``, and an
-``eval.json`` summary read back by this script.
-
-``--jobs`` (default 5) runs that many (mode, seed) runs concurrently via a
-thread pool; ``--jobs 1`` is fully sequential. With ``--jobs > 1`` the
-children run with ``OMP_NUM_THREADS=1`` to avoid CPU oversubscription. Run
-records are sorted by (training seed ascending, full before blind) before
-pairing and printing, so the tables and ``results.json`` match the
-sequential output regardless of completion order.
+collects the results into ``runs/ablation/results.json``. Runs are strictly
+sequential (Issue #13 forbids parallel training frameworks): each child
+process inherits stdout and writes its own model under
+``models/ablation/{mode}/seed_{seed}.zip``, its Monitor CSV under
+``runs/ablation/{mode}/seed_{seed}/``, and an ``eval.json`` summary read
+back by this script.
 
 The paired statistic is ``paired_delta = full_mean - blind_mean`` per
 training seed; across seeds the script reports population mean/std for
@@ -24,7 +16,6 @@ both conditions and for the paired deltas.
 Usage:
     uv run --group train python scripts/run_ablation.py
     uv run --group train python scripts/run_ablation.py --seeds 0,1 --timesteps 50000 --episodes 20
-    uv run --group train python scripts/run_ablation.py --jobs 1
 """
 
 from __future__ import annotations
@@ -34,7 +25,6 @@ import json
 import os
 import subprocess
 import sys
-from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import numpy as np
@@ -66,16 +56,6 @@ def eval_json_path_for(mode: str, seed: int) -> str:
     return f"runs/ablation/{mode}/seed_{seed}/eval.json"
 
 
-def train_log_path_for(mode: str, seed: int) -> str:
-    """Return the train child log path for one (mode, seed) run."""
-    return f"runs/ablation/{mode}/seed_{seed}/train.log"
-
-
-def eval_log_path_for(mode: str, seed: int) -> str:
-    """Return the eval child log path for one (mode, seed) run."""
-    return f"runs/ablation/{mode}/seed_{seed}/eval.log"
-
-
 def count_monitor_episodes(path: str) -> int:
     """Count episodes in an SB3 Monitor CSV (exactly two header lines)."""
     with open(path, encoding="utf-8") as file_handler:
@@ -86,89 +66,52 @@ def count_monitor_episodes(path: str) -> int:
     return len(data_lines)
 
 
-def train_one(
-    mode: str, seed: int, timesteps: int, child_env: dict[str, str] | None
-) -> None:
-    """Train one agent via scripts/train_dqn.py (stdout to train.log)."""
-    with open(train_log_path_for(mode, seed), "w", encoding="utf-8") as log_file:
-        subprocess.run(
-            [
-                sys.executable,
-                "scripts/train_dqn.py",
-                "--observation",
-                mode,
-                "--timesteps",
-                str(timesteps),
-                "--seed",
-                str(seed),
-                "--output",
-                model_path_for(mode, seed),
-            ],
-            check=True,
-            stdout=log_file,
-            stderr=subprocess.STDOUT,
-            env=child_env,
-        )
+def train_one(mode: str, seed: int, timesteps: int) -> None:
+    """Train one agent via scripts/train_dqn.py (inherits stdout)."""
+    subprocess.run(
+        [
+            sys.executable,
+            "scripts/train_dqn.py",
+            "--observation",
+            mode,
+            "--timesteps",
+            str(timesteps),
+            "--seed",
+            str(seed),
+            "--output",
+            model_path_for(mode, seed),
+        ],
+        check=True,
+    )
 
 
-def evaluate_one(
-    mode: str,
-    seed: int,
-    episodes: int,
-    eval_seed: int,
-    child_env: dict[str, str] | None,
-) -> None:
-    """Evaluate one agent via scripts/eval_dqn.py (stdout to eval.log)."""
-    with open(eval_log_path_for(mode, seed), "w", encoding="utf-8") as log_file:
-        subprocess.run(
-            [
-                sys.executable,
-                "scripts/eval_dqn.py",
-                "--model",
-                model_path_for(mode, seed),
-                "--observation",
-                mode,
-                "--episodes",
-                str(episodes),
-                "--seed",
-                str(eval_seed),
-                "--json-output",
-                eval_json_path_for(mode, seed),
-            ],
-            check=True,
-            stdout=log_file,
-            stderr=subprocess.STDOUT,
-            env=child_env,
-        )
+def evaluate_one(mode: str, seed: int, episodes: int, eval_seed: int) -> None:
+    """Evaluate one agent via scripts/eval_dqn.py (inherits stdout)."""
+    subprocess.run(
+        [
+            sys.executable,
+            "scripts/eval_dqn.py",
+            "--model",
+            model_path_for(mode, seed),
+            "--observation",
+            mode,
+            "--episodes",
+            str(episodes),
+            "--seed",
+            str(eval_seed),
+            "--json-output",
+            eval_json_path_for(mode, seed),
+        ],
+        check=True,
+    )
 
 
 def run_one(
-    mode: str,
-    seed: int,
-    timesteps: int,
-    episodes: int,
-    eval_seed: int,
-    child_env: dict[str, str] | None = None,
+    mode: str, seed: int, timesteps: int, episodes: int, eval_seed: int
 ) -> dict[str, Any]:
     """Train, evaluate and summarize one (mode, seed) run."""
-    print(f"[start] {mode} seed_{seed}", flush=True)
-    os.makedirs(os.path.dirname(train_log_path_for(mode, seed)), exist_ok=True)
-    try:
-        train_one(mode, seed, timesteps, child_env)
-    except subprocess.CalledProcessError as error:
-        log_path = train_log_path_for(mode, seed)
-        print(f"[failed] {mode} seed_{seed} — see {log_path}", flush=True)
-        raise RuntimeError(
-            f"training failed for {mode} seed_{seed}; see {log_path}"
-        ) from error
-    try:
-        evaluate_one(mode, seed, episodes, eval_seed, child_env)
-    except subprocess.CalledProcessError as error:
-        log_path = eval_log_path_for(mode, seed)
-        print(f"[failed] {mode} seed_{seed} — see {log_path}", flush=True)
-        raise RuntimeError(
-            f"evaluation failed for {mode} seed_{seed}; see {log_path}"
-        ) from error
+    train_one(mode, seed, timesteps)
+    evaluate_one(mode, seed, episodes, eval_seed)
 
     monitor_csv = monitor_csv_path_for(mode, seed)
     eval_json = eval_json_path_for(mode, seed)
@@ -181,7 +124,6 @@ def run_one(
     with open(eval_json, encoding="utf-8") as file_handler:
         eval_payload: dict[str, Any] = json.load(file_handler)
 
-    print(f"[done] {mode} seed_{seed}", flush=True)
     return {
         "condition": mode,
         "training_seed": seed,
@@ -265,8 +207,8 @@ def print_paired_table(paired: list[dict[str, Any]]) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "Run the Issue #13 paired Full/Blind observation ablation "
-            "(train + evaluate per seed and mode)."
+            "Sequentially run the Issue #13 paired Full/Blind observation "
+            "ablation (train + evaluate per seed and mode)."
         )
     )
     parser.add_argument(
@@ -293,60 +235,16 @@ def main() -> None:
         default=1000,
         help="starting evaluation map seed (default: 1000)",
     )
-    parser.add_argument(
-        "--jobs",
-        type=int,
-        default=5,
-        help=(
-            "concurrent (train+eval) run subprocesses; 1 = fully sequential "
-            "(default: 5)"
-        ),
-    )
     args = parser.parse_args()
-    if args.jobs < 1:
-        parser.error("--jobs must be >= 1")
 
     seeds = parse_seeds(args.seeds)
-    # Children only get an overridden env when running concurrently: a single
-    # run keeps the inherited environment, N parallel runs pin each child to
-    # one OpenMP thread to avoid CPU oversubscription.
-    child_env: dict[str, str] | None = None
-    if args.jobs > 1:
-        child_env = dict(os.environ)
-        child_env["OMP_NUM_THREADS"] = "1"
-
     runs: list[dict[str, Any]] = []
-    if args.jobs == 1:
-        for seed in seeds:
-            for mode in OBSERVATION_MODES:
-                runs.append(
-                    run_one(
-                        mode, seed, args.timesteps, args.episodes, args.eval_seed
-                    )
-                )
-    else:
-        with ThreadPoolExecutor(max_workers=args.jobs) as executor:
-            futures = [
-                executor.submit(
-                    run_one,
-                    mode,
-                    seed,
-                    args.timesteps,
-                    args.episodes,
-                    args.eval_seed,
-                    child_env,
-                )
-                for seed in seeds
-                for mode in OBSERVATION_MODES
-            ]
-            for future in futures:
-                runs.append(future.result())
-
-    # Completion order varies under concurrency; sort deterministically by
-    # (training seed ascending, full before blind) so tables and results.json
-    # match the sequential output.
-    mode_order = {mode: index for index, mode in enumerate(OBSERVATION_MODES)}
-    runs.sort(key=lambda run: (run["training_seed"], mode_order[run["condition"]]))
+    for seed in seeds:
+        for mode in OBSERVATION_MODES:
+            print(f"=== run: seed={seed} observation={mode} ===", flush=True)
+            runs.append(
+                run_one(mode, seed, args.timesteps, args.episodes, args.eval_seed)
+            )
 
     paired = paired_rows(runs, seeds)
     aggregate = aggregate_stats(paired)

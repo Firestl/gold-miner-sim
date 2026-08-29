@@ -124,10 +124,8 @@ uv run --group train python scripts/eval_dqn.py --model models/dqn_gold_miner_fi
 uv run --group train python scripts/train_dqn.py --observation full --timesteps 200000 --seed 0
 uv run --group train python scripts/train_dqn.py --observation blind --timesteps 200000 --seed 0
 
-# Run the full paired experiment (10 200k runs, seeds 0-4) and write the
-# paired summary to runs/ablation/results.json. --jobs controls concurrent
-# (train+eval) subprocesses (default: 5; --jobs 1 is fully sequential); each
-# child's output goes to runs/ablation/<mode>/seed_<n>/train.log and eval.log.
+# Run the full paired experiment (10 sequential 200k runs, seeds 0-4) and
+# write the paired summary to runs/ablation/results.json
 uv run --group train python scripts/run_ablation.py
 
 # Evaluate one ablation model on the benchmark maps (match the training mode!
