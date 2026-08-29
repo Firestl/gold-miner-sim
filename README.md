@@ -1,6 +1,5 @@
-# gold-miner-sim
+# Watch a full 60 s episode in a Pygame window (~60 s real time)
+uv run python scripts/demo_episode.py
 
-A minimal, deterministic, headless-capable Gold Miner reinforcement learning
-simulation environment built on Gymnasium.
-
-See the issues for the current milestone plan.
+# Run the same episode headless at full speed
+uv run python scripts/demo_episode.py --headless
