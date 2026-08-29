@@ -263,7 +263,10 @@ class GoldMinerEnv(gymnasium.Env):
     def _advance_extending(self) -> None:
         prev_rope = self.rope_length
         prev_tip = self.hook_tip
-        new_rope = prev_rope + EXTENSION_SPEED * DT
+        # Clamp this tick's candidate rope length first: the collision sweep
+        # must only cover the legal path (up to MAX_ROPE_LENGTH), never the
+        # overshoot a raw ``prev + speed * dt`` step would produce.
+        new_rope = min(prev_rope + EXTENSION_SPEED * DT, MAX_ROPE_LENGTH)
         rad = math.radians(self.angle)
         new_tip_x = ANCHOR[0] + new_rope * math.sin(rad)
         new_tip_y = ANCHOR[1] + new_rope * math.cos(rad)
@@ -288,9 +291,14 @@ class GoldMinerEnv(gymnasium.Env):
                 hit_object = obj
 
         if hit_object is not None:
-            # Stop the rope at the first-contact position.
+            # Stop the rope at the first-contact position, then immediately
+            # snap the object onto the (new) hook tip: its center must follow
+            # the tip from the hit tick on, so the observation / render of
+            # this step is already consistent. Order matters: hook_tip is
+            # read only after rope_length has been updated.
             self.rope_length = prev_rope + best_t * (new_rope - prev_rope)
             self.attached_object = hit_object
+            hit_object.x, hit_object.y = self.hook_tip
             self.hook_state = HookState.RETRACT_LOADED
         elif new_rope >= MAX_ROPE_LENGTH:
             self.rope_length = MAX_ROPE_LENGTH

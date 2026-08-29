@@ -123,6 +123,14 @@ def _run_loaded_retract(
     assert env.rope_length == pytest.approx(MIN_ROPE_LENGTH)
 
 
+def _place_on_ray(obj: GameObject, angle_deg: float, rope: float) -> None:
+    """White-box helper: put ``obj``'s center on the fire ray of
+    ``angle_deg`` at radial distance ``rope`` from the anchor."""
+    rad = math.radians(angle_deg)
+    obj.x = ANCHOR[0] + rope * math.sin(rad)
+    obj.y = ANCHOR[1] + rope * math.cos(rad)
+
+
 # ---------------------------------------------------------------------------
 # Reset
 # ---------------------------------------------------------------------------
@@ -375,6 +383,24 @@ def test_loaded_retract_rock() -> None:
                         expected_value=50.0, expected_speed=90.0)
 
 
+def test_hit_step_syncs_attached_object_to_hook_tip() -> None:
+    """The step that detects the hit must already report the object at the
+    hook tip (issue #1 section 5.4), not at its original map position."""
+    env = GoldMinerEnv()
+    env.reset()
+    _fire_at_angle(env, -30.0)  # normal GOLD catch
+
+    while env.hook_state is HookState.EXTENDING:
+        env.step(WAIT)
+
+    assert env.hook_state is HookState.RETRACT_LOADED
+    attached = env.attached_object
+    assert attached is not None and attached is env.objects[0]
+    tip_x, tip_y = env.hook_tip
+    assert attached.x == pytest.approx(tip_x)
+    assert attached.y == pytest.approx(tip_y)
+
+
 # ---------------------------------------------------------------------------
 # Collision
 # ---------------------------------------------------------------------------
@@ -423,6 +449,149 @@ def test_collision_picks_nearest_object_on_same_ray() -> None:
                         expected_value=500.0, expected_speed=280.0)
     assert env.objects[2].active is True
     assert env.score == pytest.approx(750.0)
+
+
+def test_max_rope_boundary_collision_ignores_overshoot() -> None:
+    """An object only touching the final tick's overshoot path (rope in
+    (MAX_ROPE_LENGTH, unclamped end]) must be missed: the sweep is done on
+    the path clamped to MAX_ROPE_LENGTH, so the shot ends RETRACT_EMPTY."""
+    env = GoldMinerEnv()
+    env.reset()
+
+    # Replicate the extension tick arithmetic to find the last extending
+    # tick: prev_rope -> min(prev_rope + EXTENSION_SPEED * DT, MAX_ROPE_LENGTH).
+    prev_rope = MIN_ROPE_LENGTH
+    while prev_rope + EXTENSION_SPEED * DT < MAX_ROPE_LENGTH:
+        prev_rope += EXTENSION_SPEED * DT
+    overshoot_end = prev_rope + EXTENSION_SPEED * DT
+    assert MAX_ROPE_LENGTH < overshoot_end  # unclamped end crosses the limit
+
+    # Contact circle = radius + HOOK_RADIUS = 30.4 px. Its center sits 30 px
+    # beyond the unclamped end, so its near edge (overshoot_end - 0.4) lies
+    # inside the overshoot band but strictly beyond MAX_ROPE_LENGTH: the
+    # legal sweep path cannot reach it, the unclamped (buggy) path would.
+    gold = env.objects[0]
+    gold.radius = 24.4
+    _place_on_ray(gold, INITIAL_ANGLE, overshoot_end + 30.0)
+
+    # Geometry sanity, using the same sweep primitive as the environment.
+    rad = math.radians(INITIAL_ANGLE)
+    sin_a, cos_a = math.sin(rad), math.cos(rad)
+    tip_prev = (ANCHOR[0] + prev_rope * sin_a, ANCHOR[1] + prev_rope * cos_a)
+    tip_legal = (
+        ANCHOR[0] + MAX_ROPE_LENGTH * sin_a,
+        ANCHOR[1] + MAX_ROPE_LENGTH * cos_a,
+    )
+    tip_buggy = (ANCHOR[0] + overshoot_end * sin_a, ANCHOR[1] + overshoot_end * cos_a)
+    eff_radius = gold.radius + 6.0  # HOOK_RADIUS
+    assert sweep_circle_hit(*tip_prev, *tip_legal, gold.x, gold.y, eff_radius) is None
+    assert sweep_circle_hit(*tip_legal, *tip_buggy, gold.x, gold.y, eff_radius) is not None
+
+    env.step(FIRE)  # launch straight from the initial -70 deg swing
+    while env.hook_state is HookState.EXTENDING:
+        env.step(WAIT)
+
+    assert env.hook_state is HookState.RETRACT_EMPTY  # miss, not a catch
+    assert env.rope_length == pytest.approx(MAX_ROPE_LENGTH)
+    assert env.attached_object is None
+    assert gold.active is True
+
+
+def test_collision_on_legal_path_near_max_rope_hits() -> None:
+    """Control for the overshoot test: the same object on the legal path
+    (radial distance <= MAX_ROPE_LENGTH) is caught normally."""
+    env = GoldMinerEnv()
+    env.reset()
+    gold = env.objects[0]
+    gold.radius = 24.4
+    _place_on_ray(gold, INITIAL_ANGLE, MAX_ROPE_LENGTH - 20.0)
+
+    env.step(FIRE)
+    while env.hook_state is HookState.EXTENDING:
+        env.step(WAIT)
+
+    assert env.hook_state is HookState.RETRACT_LOADED
+    assert env.attached_object is gold
+
+
+# ---------------------------------------------------------------------------
+# Observation contract (issue #1 section 8: fixed 26-slot layout)
+# ---------------------------------------------------------------------------
+def test_observation_contract_reset_exact_26_values() -> None:
+    env = GoldMinerEnv()
+    obs, _ = env.reset()
+    expected = np.array(
+        [
+            INITIAL_ANGLE / MAX_ANGLE,  # 0: normalized angle = -1
+            1.0,  # 1: swing direction
+            1.0, 0.0, 0.0, 0.0,  # 2-5: one-hot SWINGING
+            MIN_ROPE_LENGTH / MAX_ROPE_LENGTH,  # 6: normalized rope 50/460
+            EPISODE_TIME / EPISODE_TIME,  # 7: remaining time 60/60 = 1
+            # GOLD slot (8-13)
+            315.0 / 900.0, 300.0 / 600.0, 30.0 / 100.0,
+            250.0 / 500.0, 140.0 / 360.0, 1.0,
+            # DIAMOND slot (14-19)
+            465.0 / 900.0, 450.0 / 600.0, 18.0 / 100.0,
+            500.0 / 500.0, 280.0 / 360.0, 1.0,
+            # ROCK slot (20-25)
+            610.0 / 900.0, 340.0 / 600.0, 34.0 / 100.0,
+            50.0 / 500.0, 90.0 / 360.0, 1.0,
+        ],
+        dtype=np.float32,
+    )
+    assert obs.shape == (26,)
+    assert obs == pytest.approx(expected)
+
+
+def test_observation_contract_tracks_state_changes() -> None:
+    env = GoldMinerEnv()
+    env.reset()
+
+    # The FIRE tick enters EXTENDING and already advances one physics tick:
+    # the one-hot moves, rope grows by one extension step, one tick of time
+    # (1/3600 of the normalized budget) is consumed.
+    obs, _, _, truncated, _ = env.step(FIRE)
+    assert not truncated
+    assert obs[0] == pytest.approx(INITIAL_ANGLE / MAX_ANGLE)  # angle frozen
+    assert obs[1] == 1.0
+    assert list(obs[2:6]) == [0.0, 1.0, 0.0, 0.0]  # one-hot EXTENDING
+    assert obs[6] == pytest.approx(
+        (MIN_ROPE_LENGTH + EXTENSION_SPEED * DT) / MAX_ROPE_LENGTH
+    )
+    assert obs[7] == pytest.approx((EPISODE_TIME - DT) / EPISODE_TIME)
+
+    obs, _, _, truncated, _ = env.step(WAIT)
+    assert not truncated
+    assert list(obs[2:6]) == [0.0, 1.0, 0.0, 0.0]
+    assert obs[6] == pytest.approx(
+        (MIN_ROPE_LENGTH + 2.0 * EXTENSION_SPEED * DT) / MAX_ROPE_LENGTH
+    )
+    assert obs[7] == pytest.approx((EPISODE_TIME - 2.0 * DT) / EPISODE_TIME)
+
+
+def test_observation_contract_collected_object_slots_zeroed() -> None:
+    env = GoldMinerEnv()
+    env.reset()
+    _fire_at_angle(env, -30.0)
+    obs: np.ndarray | None = None
+    while True:
+        obs, _, _, truncated, _ = env.step(WAIT)
+        assert not truncated
+        if env.hook_state is HookState.SWINGING:
+            break  # the tick that scored GOLD and returned to SWINGING
+    assert obs is not None
+    assert env.score == pytest.approx(250.0)
+    # The whole collected slot is exactly zero.
+    assert list(obs[8:14]) == [0.0] * 6
+    # The other slots keep their exact contract values.
+    assert obs[14:20] == pytest.approx(
+        np.array([465.0 / 900.0, 450.0 / 600.0, 18.0 / 100.0,
+                  500.0 / 500.0, 280.0 / 360.0, 1.0], dtype=np.float32)
+    )
+    assert obs[20:26] == pytest.approx(
+        np.array([610.0 / 900.0, 340.0 / 600.0, 34.0 / 100.0,
+                  50.0 / 500.0, 90.0 / 360.0, 1.0], dtype=np.float32)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -502,40 +671,63 @@ def _record(env: GoldMinerEnv, traj: list[tuple]) -> None:
     )
 
 
-def _run_fixed_script(env: GoldMinerEnv) -> list[tuple]:
-    """Capture GOLD, DIAMOND and ROCK, then WAIT until timeout."""
-    traj: list[tuple] = []
+def _run_fixed_policy(
+    env: GoldMinerEnv,
+    actions: list[int],
+    traj: list[tuple],
+) -> None:
+    """Drive the fixed demo policy while recording every action and the
+    post-step trajectory entry (capture GOLD, DIAMOND, ROCK, then WAIT to
+    timeout)."""
     for target_angle in (-30.0, 2.0, 31.0):
         while (
             env.hook_state is HookState.SWINGING
             and abs(env.angle - target_angle) > ANGLE_TOL
         ):
+            actions.append(WAIT)
             env.step(WAIT)
             _record(env, traj)
+        actions.append(FIRE)
         env.step(FIRE)
         _record(env, traj)
         while env.hook_state is not HookState.SWINGING:
+            actions.append(WAIT)
             env.step(WAIT)
             _record(env, traj)
     while True:
+        actions.append(WAIT)
         _, _, _, truncated, _ = env.step(WAIT)
         _record(env, traj)
         if truncated:
             break
-    return traj
 
 
-def test_determinism_identical_actions_identical_trajectory() -> None:
+def test_determinism_replaying_recorded_action_list() -> None:
+    """Issue #1 section 14: replaying the exact same action sequence must
+    reproduce the full trajectory (issue review: record first, replay the
+    same list second)."""
     env = GoldMinerEnv()
     env.reset(seed=1)
-    traj_a = _run_fixed_script(env)
+    actions: list[int] = []
+    traj_a: list[tuple] = []
+    _run_fixed_policy(env, actions, traj_a)
 
+    # One action per tick for the whole 60 s episode, all three objects in.
+    assert len(actions) == SIM_FPS * int(EPISODE_TIME)
+    assert env.score == pytest.approx(800.0)  # 250 + 500 + 50
+
+    # Strict replay: fresh reset, then follow the recorded list verbatim.
     env.reset(seed=2)  # seeds cannot matter: there is no randomness
-    traj_b = _run_fixed_script(env)
+    traj_b: list[tuple] = []
+    for action in actions:
+        env.step(action)
+        _record(env, traj_b)
 
     assert len(traj_a) == len(traj_b)
     assert traj_a == traj_b  # float entries are bit-identical
-    assert env.score == pytest.approx(800.0)  # 250 + 500 + 50
+    assert env.score == pytest.approx(800.0)
+    assert env.remaining_time == 0.0
+    assert tuple(obj.active for obj in env.objects) == (False, False, False)
 
 
 # ---------------------------------------------------------------------------
