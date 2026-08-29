@@ -9,11 +9,12 @@ from __future__ import annotations
 import enum
 import math
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import gymnasium
 import numpy as np
 from gymnasium import spaces
+from numpy.typing import NDArray
 
 if TYPE_CHECKING:
     from gold_miner_sim.renderer import HumanRenderer
@@ -121,7 +122,7 @@ def sweep_circle_hit(
     return None
 
 
-class GoldMinerEnv(gymnasium.Env):
+class GoldMinerEnv(gymnasium.Env[NDArray[np.float32], int]):
     """Single-agent Gold Miner environment with a fixed map (V0)."""
 
     metadata = {"render_modes": ["human"], "render_fps": 60}
@@ -164,8 +165,8 @@ class GoldMinerEnv(gymnasium.Env):
         self,
         *,
         seed: int | None = None,
-        options: dict | None = None,
-    ) -> tuple[np.ndarray, dict[str, float | str]]:
+        options: dict[str, Any] | None = None,
+    ) -> tuple[NDArray[np.float32], dict[str, Any]]:
         super().reset(seed=seed)
         self.score = 0.0
         self.remaining_time = EPISODE_TIME
@@ -202,11 +203,21 @@ class GoldMinerEnv(gymnasium.Env):
                 retract_speed=90.0,
             ),
         ]
+        # First frame for human mode (a no-op when render_mode is None).
+        self.render()
         return self._observation(), self._info()
 
     def step(
         self, action: int
-    ) -> tuple[np.ndarray, float, bool, bool, dict[str, float | str]]:
+    ) -> tuple[NDArray[np.float32], float, bool, bool, dict[str, Any]]:
+        # Validate against action_space so both Python ints and NumPy
+        # integers (Discrete.sample() returns np.int64) are accepted, and
+        # out-of-range actions fail loudly instead of acting as WAIT.
+        if not self.action_space.contains(action):
+            raise ValueError(
+                f"invalid action {action!r}, expected 0 (WAIT) or 1 (FIRE)"
+            )
+
         old_score = self.score
 
         # 1) Action handling. Only SWINGING accepts FIRE; entering EXTENDING
@@ -232,6 +243,9 @@ class GoldMinerEnv(gymnasium.Env):
         # 4) Reward, episode-end flags, observation, info.
         reward = self.score - old_score
         truncated = self.remaining_time <= 0.0
+        # Auto-render for human mode (no-op when render_mode is None), so
+        # callers no longer need to invoke render() after every step.
+        self.render()
         return self._observation(), reward, False, truncated, self._info()
 
     def render(self) -> None:
@@ -247,6 +261,11 @@ class GoldMinerEnv(gymnasium.Env):
     def close(self) -> None:
         if self._renderer is not None:
             self._renderer.close()
+
+    @property
+    def window_closed(self) -> bool:
+        """True after the human-render window has been closed by the user."""
+        return self._renderer is not None and self._renderer.closed
 
     # ------------------------------------------------------------------
     # Per-state physics (one tick each)
@@ -331,7 +350,7 @@ class GoldMinerEnv(gymnasium.Env):
     # ------------------------------------------------------------------
     # Observation / info
     # ------------------------------------------------------------------
-    def _observation(self) -> np.ndarray:
+    def _observation(self) -> NDArray[np.float32]:
         # Global / hook: 8 values.
         obs: list[float] = [
             self.angle / MAX_ANGLE,  # normalized hook angle
@@ -360,7 +379,7 @@ class GoldMinerEnv(gymnasium.Env):
                 obs.extend([0.0] * 6)
         return np.asarray(obs, dtype=np.float32)
 
-    def _info(self) -> dict[str, float | str]:
+    def _info(self) -> dict[str, Any]:
         return {
             "score": self.score,
             "remaining_time": self.remaining_time,

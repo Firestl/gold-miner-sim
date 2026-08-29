@@ -29,12 +29,14 @@ TARGET_ANGLES: tuple[float, ...] = (-30.0, 2.0, 31.0)
 FIRE_TOLERANCE_DEG = 0.6
 
 
-def run_episode(env: GoldMinerEnv, render: bool) -> tuple[float, int, int, float]:
+def run_episode(env: GoldMinerEnv) -> tuple[float, int, int, float]:
     """Run one episode with the fixed fire-angle policy.
 
     Fires once per entry in ``TARGET_ANGLES`` (only while SWINGING and only
     when the current angle is within tolerance of the target), then waits
-    until the episode ends or the render window is closed.
+    until the episode ends or the render window is closed. In human mode
+    ``step()`` renders automatically, so no explicit per-step ``render()``
+    is needed.
 
     Returns ``(score, collected_count, steps, elapsed_seconds)``.
     """
@@ -59,10 +61,8 @@ def run_episode(env: GoldMinerEnv, render: bool) -> tuple[float, int, int, float
         _obs, _reward, terminated, truncated, _info = env.step(action)
         steps += 1
 
-        if render:
-            env.render()
-            if env._renderer is not None and env._renderer.closed:
-                break
+        if env.window_closed:  # always False in headless mode
+            break
 
     collected = sum(1 for obj in env.objects if not obj.active)
     return env.score, collected, steps, EPISODE_TIME - env.remaining_time
@@ -80,7 +80,7 @@ def main() -> None:
     args = parser.parse_args()
 
     env = GoldMinerEnv(render_mode=None if args.headless else "human")
-    score, collected, steps, elapsed = run_episode(env, render=not args.headless)
+    score, collected, steps, elapsed = run_episode(env)
     env.close()
 
     print(f"Final score: {score:g}")
