@@ -53,7 +53,7 @@ class ScriptedStubEnv(gymnasium.Env):
         self._rewards = rewards
         self._terminateds = terminateds
         self._truncateds = truncateds
-        self.executed_actions: list[int] = []
+        self.executed_actions: list[int | np.integer[Any]] = []
 
     def reset(
         self,
@@ -153,7 +153,8 @@ def test_fire_wrapper_step_matches_manual_tick_sequence() -> None:
     输出：observation 逐元素相等、reward 相等、结束标志相等，且
     hook_state 一致、angle / rope_length / remaining_time（approx）相等。
     """
-    wrapped = DecisionIntervalWrapper(GoldMinerEnv())
+    inner = GoldMinerEnv()
+    wrapped = DecisionIntervalWrapper(inner)
     wrapped.reset(seed=3)
     obs_w, reward_w, terminated_w, truncated_w, _ = wrapped.step(FIRE)
 
@@ -168,7 +169,6 @@ def test_fire_wrapper_step_matches_manual_tick_sequence() -> None:
     assert terminated_w == terminated_b
     assert truncated_w == truncated_b
 
-    inner = wrapped.unwrapped
     assert inner.hook_state is env_b.hook_state
     assert inner.angle == pytest.approx(env_b.angle)
     assert inner.rope_length == pytest.approx(env_b.rope_length)
@@ -301,9 +301,9 @@ def test_real_env_full_episode_truncates_with_consistent_reward() -> None:
     terminated=False；全部分步 reward 之和等于最终 score（250.0，恰好
     收取 GOLD 一次），GOLD 已失效。
     """
-    wrapped = DecisionIntervalWrapper(GoldMinerEnv())
+    inner = GoldMinerEnv()
+    wrapped = DecisionIntervalWrapper(inner)
     wrapped.reset(seed=0)
-    inner = wrapped.unwrapped
 
     for _ in range(4):
         wrapped.step(WAIT)

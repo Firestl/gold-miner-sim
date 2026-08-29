@@ -24,6 +24,8 @@ ROCK(610,340)。发射时的关键几何（已实测，均含 FIRE tick 本身�
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 import numpy as np
 import pytest
 from numpy.typing import NDArray
@@ -61,7 +63,8 @@ def test_wait_matches_ten_bare_wait_ticks() -> None:
     """
     assert ADVANCE_INTERVAL == 10
     assert SWING_WAIT_INTERVAL == 10
-    wrapped = SwingAdvanceDecisionWrapper(GoldMinerEnv())
+    inner = GoldMinerEnv()
+    wrapped = SwingAdvanceDecisionWrapper(inner)
     wrapped.reset(seed=0)
     obs_w, reward_w, terminated_w, truncated_w, info_w = wrapped.step(WAIT)
 
@@ -84,7 +87,6 @@ def test_wait_matches_ten_bare_wait_ticks() -> None:
     assert truncated_w is truncated_b is truncated_s is False
     assert info_w == info_b == info_s
 
-    inner = wrapped.unwrapped
     assert inner.hook_state is HookState.SWINGING is env_b.hook_state
     assert inner.angle == pytest.approx(env_b.angle)  # -60°
     assert inner.rope_length == env_b.rope_length
@@ -104,9 +106,9 @@ def test_fire_empty_hook_full_cycle_plus_advance() -> None:
     = 156 个 tick，remaining_time 精确等于 EPISODE_TIME - 156/SIM_FPS；
     角度已离开发射角：-70° -> -60°（方向 +1 保持，远离边界）。
     """
-    wrapped = SwingAdvanceDecisionWrapper(GoldMinerEnv())
+    inner = GoldMinerEnv()
+    wrapped = SwingAdvanceDecisionWrapper(inner)
     wrapped.reset(seed=0)
-    inner = wrapped.unwrapped
     assert inner.angle == pytest.approx(-70.0)
 
     obs, reward, terminated, truncated, info = wrapped.step(FIRE)
@@ -136,9 +138,9 @@ def test_fire_catches_gold_then_advances_ten_ticks() -> None:
     底层 tick 数 40 + 112（FIRE cycle）+ 10（advance）= 162；
     返回角度 -20°，不再是发射角 -30°。
     """
-    wrapped = SwingAdvanceDecisionWrapper(GoldMinerEnv())
+    inner = GoldMinerEnv()
+    wrapped = SwingAdvanceDecisionWrapper(inner)
     wrapped.reset(seed=0)
-    inner = wrapped.unwrapped
     for _ in range(4):
         wrapped.step(WAIT)
     assert inner.angle == pytest.approx(-30.0)  # 4 × 10 tick × 1°/tick
@@ -169,9 +171,9 @@ def test_fire_return_angle_differs_from_fire_angle() -> None:
     最终 observation 逐位相等，angle / rope / remaining_time / tick 数
     精确相等（wrapper 没有自行计算任何角度）。
     """
-    wrapped = SwingAdvanceDecisionWrapper(GoldMinerEnv())
+    inner = GoldMinerEnv()
+    wrapped = SwingAdvanceDecisionWrapper(inner)
     wrapped.reset(seed=0)
-    inner = wrapped.unwrapped
     for _ in range(4):
         wrapped.step(WAIT)
     fire_angle = inner.angle
@@ -218,9 +220,9 @@ def test_post_fire_advance_reflects_at_max_angle() -> None:
     tick==276+10；随后一次 WAIT 后 angle==+60°、方向仍 -1（向左继续）；
     两个返回点的 obs 与裸环境对照逐位相等。
     """
-    wrapped = SwingAdvanceDecisionWrapper(GoldMinerEnv())
+    inner = GoldMinerEnv()
+    wrapped = SwingAdvanceDecisionWrapper(inner)
     wrapped.reset(seed=0)
-    inner = wrapped.unwrapped
     for _ in range(13):
         wrapped.step(WAIT)
     assert inner.angle == pytest.approx(60.0)
@@ -271,9 +273,9 @@ def test_fire_timeout_during_cycle_skips_advance() -> None:
     RETRACT_LOADED（若错误地执行了 advance，此处不可能为非 SWINGING）；
     reward==0、score==0、ROCK 仍 attached、三个物体均 active。
     """
-    wrapped = SwingAdvanceDecisionWrapper(GoldMinerEnv())
+    inner = GoldMinerEnv()
+    wrapped = SwingAdvanceDecisionWrapper(inner)
     wrapped.reset(seed=0)
-    inner = wrapped.unwrapped
     for _ in range(346):  # 3460 tick：280 tick/来回 + 100 -> +30°
         _, reward, terminated, truncated, _ = wrapped.step(WAIT)
         assert terminated is False and truncated is False
@@ -310,9 +312,9 @@ def test_fire_timeout_during_advance_returns_immediately() -> None:
     发生在 advance 的摆动中）；角度从发射角 +20° 推进到 +24°（恰好 4
     个 tick 的摆动量，证明执行了部分 advance 而非 0 个或 10 个）。
     """
-    wrapped = SwingAdvanceDecisionWrapper(GoldMinerEnv())
+    inner = GoldMinerEnv()
+    wrapped = SwingAdvanceDecisionWrapper(inner)
     wrapped.reset(seed=0)
-    inner = wrapped.unwrapped
     for _ in range(345):  # 3450 tick：280 x 12 + 90 -> +20°，剩 150 tick
         _, _, terminated, truncated, _ = wrapped.step(WAIT)
         assert terminated is False and truncated is False
@@ -347,9 +349,9 @@ def test_full_episode_reward_consistency_three_objects() -> None:
     的决策角都离开发射角；sum(所有分步 reward) == final score == 800；
     三个物体均 inactive；最终 truncated==True、remaining_time==0.0。
     """
-    wrapped = SwingAdvanceDecisionWrapper(GoldMinerEnv())
+    inner = GoldMinerEnv()
+    wrapped = SwingAdvanceDecisionWrapper(inner)
     wrapped.reset(seed=0)
-    inner = wrapped.unwrapped
 
     total_reward = 0.0
 
@@ -424,11 +426,12 @@ def test_invalid_action_raises_value_error(bad_action: object) -> None:
     但不属于 Discrete(2)，底层 env 会拒绝，wrapper 不得放宽契约。
     输出：每次调用均抛 ValueError，且底层未消耗任何 tick。
     """
-    wrapped = SwingAdvanceDecisionWrapper(GoldMinerEnv())
+    inner = GoldMinerEnv()
+    wrapped = SwingAdvanceDecisionWrapper(inner)
     wrapped.reset(seed=0)
-    inner = wrapped.unwrapped
+    action = cast("int | np.integer[Any]", bad_action)
     with pytest.raises(ValueError):
-        wrapped.step(bad_action)  # type: ignore[arg-type]
+        wrapped.step(action)
     assert inner._ticks == 0  # 底层未执行任何 tick
 
 
@@ -446,9 +449,9 @@ def test_decision_invariant_under_random_actions() -> None:
     输出：每个返回点若 episode 未结束则底层 hook_state 必为 SWINGING；
     若 episode 结束则 terminated/truncated 恰有一个为 True。
     """
-    wrapped = SwingAdvanceDecisionWrapper(GoldMinerEnv())
+    inner = GoldMinerEnv()
+    wrapped = SwingAdvanceDecisionWrapper(inner)
     wrapped.reset(seed=123)
-    inner = wrapped.unwrapped
     rng = np.random.default_rng(123)
 
     for _ in range(3000):

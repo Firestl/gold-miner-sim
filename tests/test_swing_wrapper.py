@@ -20,6 +20,8 @@ ROCK(610,340)。发射时的关键几何（已实测）：
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 import numpy as np
 import pytest
 from numpy.typing import NDArray
@@ -53,7 +55,8 @@ def test_wait_matches_ten_bare_wait_ticks() -> None:
     False；SWING_WAIT_INTERVAL == 10。
     """
     assert SWING_WAIT_INTERVAL == 10
-    wrapped = SwingDecisionWrapper(GoldMinerEnv())
+    inner = GoldMinerEnv()
+    wrapped = SwingDecisionWrapper(inner)
     wrapped.reset(seed=0)
     obs_w, reward_w, terminated_w, truncated_w, info_w = wrapped.step(WAIT)
 
@@ -70,7 +73,6 @@ def test_wait_matches_ten_bare_wait_ticks() -> None:
     assert terminated_w is terminated_b is False
     assert truncated_w is truncated_b is False
 
-    inner = wrapped.unwrapped
     assert inner.hook_state is HookState.SWINGING is env_b.hook_state
     assert inner.angle == pytest.approx(env_b.angle)  # -60°
     assert inner.rope_length == env_b.rope_length
@@ -90,9 +92,9 @@ def test_fire_empty_hook_full_cycle_at_minus_seventy() -> None:
     空收 69），故 remaining_time 精确等于 EPISODE_TIME - 146/SIM_FPS
     （回到 SWINGING 后不多跑一个 tick）；角度保持 -70°、摆动方向保持。
     """
-    wrapped = SwingDecisionWrapper(GoldMinerEnv())
+    inner = GoldMinerEnv()
+    wrapped = SwingDecisionWrapper(inner)
     wrapped.reset(seed=0)
-    inner = wrapped.unwrapped
     assert inner.angle == pytest.approx(-70.0)
 
     obs, reward, terminated, truncated, info = wrapped.step(FIRE)
@@ -124,9 +126,9 @@ def test_fire_catches_gold_and_returns_on_swinging_tick() -> None:
     序列完全一致（40 + 34 伸 + 78 载收 = 152），remaining_time 精确相等，
     且最终 observation 逐位相等。
     """
-    wrapped = SwingDecisionWrapper(GoldMinerEnv())
+    inner = GoldMinerEnv()
+    wrapped = SwingDecisionWrapper(inner)
     wrapped.reset(seed=0)
-    inner = wrapped.unwrapped
     for _ in range(4):
         wrapped.step(WAIT)
     assert inner.angle == pytest.approx(-30.0)  # 4 × 10 tick × 1°/tick
@@ -171,9 +173,9 @@ def test_fire_truncated_mid_retract_scores_nothing() -> None:
     已结束，允许非 SWINGING）、reward==0、score==0、ROCK 仍 attached 且
     三个物体均 active；底层 tick 恰为 3600。
     """
-    wrapped = SwingDecisionWrapper(GoldMinerEnv())
+    inner = GoldMinerEnv()
+    wrapped = SwingDecisionWrapper(inner)
     wrapped.reset(seed=0)
-    inner = wrapped.unwrapped
     for _ in range(346):  # 3460 tick：280 tick/来回 + 100 → +30°，方向 +1
         _, reward, terminated, truncated, _ = wrapped.step(WAIT)
         assert terminated is False and truncated is False
@@ -210,9 +212,9 @@ def test_full_episode_reward_consistency_three_objects() -> None:
     reward) == final score == 800；三个物体均 inactive；最终
     truncated==True、terminated==False、remaining_time==0.0。
     """
-    wrapped = SwingDecisionWrapper(GoldMinerEnv())
+    inner = GoldMinerEnv()
+    wrapped = SwingDecisionWrapper(inner)
     wrapped.reset(seed=0)
-    inner = wrapped.unwrapped
 
     total_reward = 0.0
 
@@ -288,11 +290,12 @@ def test_invalid_action_raises_value_error(bad_action: object) -> None:
     但不属于 Discrete(2)，底层 env 会拒绝，wrapper 不得放宽契约。
     输出：每次调用均抛 ValueError，且底层未消耗任何 tick。
     """
-    wrapped = SwingDecisionWrapper(GoldMinerEnv())
+    inner = GoldMinerEnv()
+    wrapped = SwingDecisionWrapper(inner)
     wrapped.reset(seed=0)
-    inner = wrapped.unwrapped
+    action = cast("int | np.integer[Any]", bad_action)
     with pytest.raises(ValueError):
-        wrapped.step(bad_action)  # type: ignore[arg-type]
+        wrapped.step(action)
     assert inner._ticks == 0  # 底层未执行任何 tick
 
 
@@ -309,9 +312,9 @@ def test_decision_invariant_under_random_actions() -> None:
     输出：每个返回点若 episode 未结束则底层 hook_state 必为 SWINGING；
     若 episode 结束则 terminated/truncated 恰有一个为 True。
     """
-    wrapped = SwingDecisionWrapper(GoldMinerEnv())
+    inner = GoldMinerEnv()
+    wrapped = SwingDecisionWrapper(inner)
     wrapped.reset(seed=123)
-    inner = wrapped.unwrapped
     rng = np.random.default_rng(123)
 
     for _ in range(3000):
