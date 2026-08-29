@@ -4,6 +4,7 @@ Provide a minimal, high-determinism, headless, and high-performance reinforcemen
 ## Principles
 - Zero Unnecessary Abstraction: It is strictly forbidden to prematurely design overly complex factories, configuration systems, or multi-level inheritance. Prioritize readability and minimum viable functionality.
 - Implement functionality strictly within the scope of the current issue; it is strictly forbidden to introduce large dependencies or future features that were not requested.
+- Do NOT run train command, I will run it on GPU server.
 
 ## Coding Standards
 - All public functions and Class method must have type hints.
