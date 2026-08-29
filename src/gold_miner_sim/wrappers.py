@@ -82,15 +82,19 @@ class SwingDecisionWrapper(gymnasium.Wrapper):
     timeout before recovery yields whatever was scored so far).
 
     Transitions are therefore variable-length by design; no duration-aware
-    discounting or tick-count correction is applied. Actions other than
-    WAIT (0) or FIRE (1) raise ``ValueError`` instead of silently acting
-    as WAIT. Action and observation spaces are inherited from the env.
+    discounting or tick-count correction is applied. Actions are validated
+    with ``action_space.contains`` — the same strict ``Discrete(2)``
+    contract as the underlying env, which rejects e.g. float actions that
+    compare equal to WAIT/FIRE — and never silently act as WAIT.
+    Action and observation spaces are inherited from the env.
     """
 
     def step(
         self, action: int | np.integer[Any]
     ) -> tuple[NDArray[np.float32], float, bool, bool, dict[str, Any]]:
-        if action != WAIT and action != FIRE:
+        # contains() matches the underlying env: ``action == WAIT`` would
+        # also accept floats like 0.0/1.0 that Discrete(2) does not contain.
+        if not self.action_space.contains(action):
             raise ValueError(
                 f"invalid action {action!r}, expected 0 (WAIT) or 1 (FIRE)"
             )

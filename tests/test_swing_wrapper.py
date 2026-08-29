@@ -277,12 +277,15 @@ def test_full_episode_reward_consistency_three_objects() -> None:
 # ---------------------------------------------------------------------------
 # F. 非法 action：fail loudly，不得静默当作 WAIT
 # ---------------------------------------------------------------------------
-@pytest.mark.parametrize("bad_action", [2, -1, 3, np.int64(7), np.int32(-2)])
+@pytest.mark.parametrize(
+    "bad_action", [2, -1, 3, np.int64(7), np.int32(-2), 0.0, 1.0]
+)
 def test_invalid_action_raises_value_error(bad_action: object) -> None:
-    """目的：非 WAIT/FIRE 的 action 应抛 ValueError 而非当作 WAIT。
+    """目的：action_space 之外的 action 应抛 ValueError 而非当作 WAIT。
 
-    输入：reset 后的 wrapper，分别以若干非法动作（含 np.integer 类型）
-    调用 step。
+    输入：reset 后的 wrapper，分别以若干非法动作调用 step：越界整数
+    （含 np.integer 类型）以及 0.0/1.0 —— 后者与 WAIT/FIRE 数值相等，
+    但不属于 Discrete(2)，底层 env 会拒绝，wrapper 不得放宽契约。
     输出：每次调用均抛 ValueError，且底层未消耗任何 tick。
     """
     wrapped = SwingDecisionWrapper(GoldMinerEnv())
