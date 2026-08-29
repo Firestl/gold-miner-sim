@@ -58,9 +58,34 @@ across runs if it is scored on exactly these maps. Both scripts report
   empty or times out. The third FIRE transition completes normally (including
   its reward and post-FIRE advance), then ends the episode if the inner
   environment has not already timed out.
+- Milestone 7 keeps that chain unchanged and adds
+  `ObjectPositionMaskWrapper` as the "blind" condition of the observation
+  ablation: it zeroes only the six object position slots (indices
+  8, 9, 14, 15, 20, 21 = GOLD/DIAMOND/ROCK x, y) of the 27-dim observation.
+  Everything else — hook state, radii, values, retract speeds, active flags,
+  FIRE budget — stays visible, and rewards/flags/info pass through untouched.
 
 Random-baseline numbers from earlier wrapper setups are not directly
 comparable and need to be re-measured per wrapper.
+
+## Observation ablation benchmark (Milestone 7)
+
+Issue #13 measures whether the M6 DQN actually uses object position
+information: under identical benchmark, DQN config and 200k-step budget,
+only the object `(x, y)` observation slots differ between two conditions
+trained and evaluated separately (no inference-time masking):
+
+- **Full**: the complete 27-dim observation.
+- **Blind**: positions masked to 0 by `ObjectPositionMaskWrapper` (applied
+  outside `FireBudgetWrapper` via
+  `gold_miner_sim.benchmark.make_benchmark_env("blind")`).
+
+Each condition is trained with 5 paired training seeds (0–4, 10 runs total),
+evaluated deterministically on the same 100 benchmark maps (seeds 1000–1099),
+and compared per seed as `paired_delta = full_mean - blind_mean`. `std` in
+the per-model evaluation output is the across-map episode std
+(`std_episode` in the JSON output); the across-training-seed std is a
+separate aggregate reported by `scripts/run_ablation.py`.
 
 ## Commands
 
@@ -88,6 +113,21 @@ uv run --group train python scripts/eval_dqn.py --model models/dqn_gold_miner_fi
 uv run --group train python scripts/eval_dqn.py --model models/dqn_gold_miner_fire_budget.zip --episodes 1 --seed 1000 --render
 uv run --group train python scripts/eval_dqn.py --model models/dqn_gold_miner_fire_budget.zip --episodes 1 --seed 1007 --render
 uv run --group train python scripts/eval_dqn.py --model models/dqn_gold_miner_fire_budget.zip --episodes 1 --seed 1042 --render
+
+# M7 observation ablation: train one Full + one Blind model for a single seed
+# -> models/ablation/<mode>/seed_<n>.zip + Monitor logs in runs/ablation/<mode>/seed_<n>/
+uv run --group train python scripts/train_dqn.py --observation full --timesteps 200000 --seed 0 --output models/ablation/full/seed_0.zip
+uv run --group train python scripts/train_dqn.py --observation blind --timesteps 200000 --seed 0 --output models/ablation/blind/seed_0.zip
+
+# Run the full paired experiment (10 sequential 200k runs, seeds 0-4) and
+# write the paired summary to runs/ablation/results.json
+uv run --group train python scripts/run_ablation.py
+
+# Evaluate one ablation model on the benchmark maps (match the training mode!)
+uv run --group train python scripts/eval_dqn.py --model models/ablation/blind/seed_0.zip --observation blind --episodes 100 --seed 1000 --json-output runs/ablation/blind/seed_0/eval.json
+
+# Compare FIRE angles of a paired Full/Blind model on selected maps (headless)
+uv run --group train python scripts/replay_ablation.py --full-model models/ablation/full/seed_0.zip --blind-model models/ablation/blind/seed_0.zip
 ```
 
 The evaluation output includes `mean_random`, `mean_dqn`, and
