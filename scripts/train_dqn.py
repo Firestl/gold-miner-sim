@@ -41,7 +41,10 @@ def main() -> None:
         "--seed",
         type=int,
         default=0,
-        help="seed for the DQN model (default: 0)",
+        help=(
+            "training experiment seed: seeds both SB3 and the "
+            "environment / map RNG for reproducibility (default: 0)"
+        ),
     )
     parser.add_argument(
         "--output",

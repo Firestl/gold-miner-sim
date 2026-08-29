@@ -19,8 +19,10 @@ Training uses the random map; the demo stays on the fixed map.
 
 ## Two different `--seed` meanings
 
-- `scripts/train_dqn.py --seed` seeds the DQN experiment (model RNG). It
-  has nothing to do with which maps are trained on.
+- `scripts/train_dqn.py --seed` seeds both the DQN experiment (model,
+  exploration, replay buffer) and the environment RNG, so the training
+  map sequence is fully determined by this seed. This matches Issue #5 §12:
+  "seeds SB3 / environment reproducibility."
 - `scripts/random_baseline.py --seed` and `scripts/eval_dqn.py --seed`
   are **evaluation map seed start values**: episode `i` (0-based) plays
   the map drawn from `seed + i`.
