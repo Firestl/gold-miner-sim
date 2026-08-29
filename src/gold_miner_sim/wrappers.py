@@ -18,20 +18,26 @@ original firing angle (anti angle-pinning; see the class docstring).
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import gymnasium
 import numpy as np
+from gymnasium import spaces
 from numpy.typing import NDArray
 
-from gold_miner_sim.env import FIRE, WAIT, HookState
+from gold_miner_sim.env import FIRE, WAIT, GoldMinerEnv, HookState
 
 DECISION_INTERVAL = 10  # Physics ticks executed per agent decision (1/6 s).
 SWING_WAIT_INTERVAL = 10  # Max physics ticks executed per WAIT decision.
 ADVANCE_INTERVAL = 10  # Post-FIRE SWINGING WAIT ticks before returning.
 
+# Shared wrapper type parameters: observation space, action space and the
+# wrapped env's own obs/act types all match ``GoldMinerEnv`` (the wrappers
+# inherit both spaces unchanged).
+_WrapperT = gymnasium.Wrapper[NDArray[np.float32], int, NDArray[np.float32], int]
 
-class DecisionIntervalWrapper(gymnasium.Wrapper):
+
+class DecisionIntervalWrapper(_WrapperT):
     """Repeat each agent action for ``DECISION_INTERVAL`` physics ticks.
 
     ``step(action)`` runs one underlying tick with the given action, then
@@ -45,11 +51,16 @@ class DecisionIntervalWrapper(gymnasium.Wrapper):
     def step(
         self, action: int | np.integer[Any]
     ) -> tuple[NDArray[np.float32], float, bool, bool, dict[str, Any]]:
+        if not self.action_space.contains(action):
+            raise ValueError(
+                f"invalid action {action!r}, expected 0 (WAIT) or 1 (FIRE)"
+            )
+
         total_reward = 0.0
         for i in range(DECISION_INTERVAL):
-            tick_action = action if i == 0 else WAIT
+            tick_action = int(action) if i == 0 else WAIT
             obs, reward, terminated, truncated, info = self.env.step(tick_action)
-            total_reward += reward
+            total_reward += float(reward)
             if terminated or truncated:
                 break
         return obs, total_reward, terminated, truncated, info
@@ -95,6 +106,14 @@ class SwingDecisionWrapper(gymnasium.Wrapper):
     Action and observation spaces are inherited from the env.
     """
 
+    # This wrapper only ever wraps GoldMinerEnv and reads its game state
+    # (hook_state) directly; the annotation narrows the gymnasium base
+    # attribute for static typing.
+    env: GoldMinerEnv
+
+    def __init__(self, env: GoldMinerEnv) -> None:
+        super().__init__(env)
+
     def step(
         self, action: int | np.integer[Any]
     ) -> tuple[NDArray[np.float32], float, bool, bool, dict[str, Any]]:
@@ -110,9 +129,9 @@ class SwingDecisionWrapper(gymnasium.Wrapper):
             # First tick: SWINGING -> EXTENDING (angle frozen from here on).
             obs, reward, terminated, truncated, info = self.env.step(FIRE)
             total_reward += reward
+            hook_env = cast(GoldMinerEnv, self.env.unwrapped)
             # Auto-advance until the hook is back at the top; stop at the
             # exact SWINGING tick or at the first episode-ending tick.
-            hook_env = self.env.unwrapped
             while not (terminated or truncated) and (
                 hook_env.hook_state is not HookState.SWINGING
             ):
@@ -166,6 +185,14 @@ class SwingAdvanceDecisionWrapper(gymnasium.Wrapper):
     Action and observation spaces are inherited from the env.
     """
 
+    # This wrapper only ever wraps GoldMinerEnv and reads its game state
+    # (hook_state) directly; the annotation narrows the gymnasium base
+    # attribute for static typing.
+    env: GoldMinerEnv
+
+    def __init__(self, env: GoldMinerEnv) -> None:
+        super().__init__(env)
+
     def step(
         self, action: int | np.integer[Any]
     ) -> tuple[NDArray[np.float32], float, bool, bool, dict[str, Any]]:
@@ -183,7 +210,7 @@ class SwingAdvanceDecisionWrapper(gymnasium.Wrapper):
             # back SWINGING or the first episode-ending tick.
             obs, reward, terminated, truncated, info = self.env.step(FIRE)
             total_reward += reward
-            hook_env = self.env.unwrapped
+            hook_env = cast(GoldMinerEnv, self.env.unwrapped)
             while not (terminated or truncated) and (
                 hook_env.hook_state is not HookState.SWINGING
             ):
@@ -215,3 +242,113 @@ class SwingAdvanceDecisionWrapper(gymnasium.Wrapper):
         options: dict[str, Any] | None = None,
     ) -> tuple[NDArray[np.float32], dict[str, Any]]:
         return self.env.reset(seed=seed, options=options)
+
+
+class FireBudgetWrapper(_WrapperT):
+    """Limit the number of FIRE decisions available in each episode.
+
+    The wrapped environment performs the complete transition for every
+    action.  FIRE consumes one budget unit immediately, including when the
+    hook misses or the wrapped transition times out.  Once the final FIRE
+    transition completes without an inner episode end, this wrapper marks the
+    episode terminated.  An inner ``truncated`` or ``terminated`` result is
+    always propagated unchanged, so a timeout cannot be replaced by the
+    budget termination.
+
+    One normalized ``fires_remaining / max_fires`` value is appended to the
+    wrapped 26-dimensional observation, yielding a 27-dimensional output.
+    ``reset()`` starts a fresh budget and appends the same value to the reset
+    observation.  Budget fields are added to every returned ``info`` mapping.
+    """
+
+    env: gymnasium.Env[NDArray[np.float32], int]
+
+    def __init__(
+        self,
+        env: gymnasium.Env[NDArray[np.float32], int],
+        max_fires: int = 3,
+    ) -> None:
+        if isinstance(max_fires, bool) or not isinstance(max_fires, (int, np.integer)):
+            raise TypeError("max_fires must be a positive integer")
+        if max_fires <= 0:
+            raise ValueError("max_fires must be a positive integer")
+
+        super().__init__(env)
+        inner_observation_space = env.observation_space
+        if not isinstance(inner_observation_space, spaces.Box):
+            raise TypeError("FireBudgetWrapper requires a Box observation space")
+        if inner_observation_space.shape != (26,):
+            raise ValueError(
+                "FireBudgetWrapper requires a 26-dimensional observation space"
+            )
+
+        self.max_fires: int = int(max_fires)
+        self.fires_used: int = 0
+        self.fires_remaining: int = self.max_fires
+        self.observation_space = spaces.Box(
+            low=np.concatenate(
+                (inner_observation_space.low, np.asarray([0.0], dtype=np.float32))
+            ),
+            high=np.concatenate(
+                (inner_observation_space.high, np.asarray([1.0], dtype=np.float32))
+            ),
+            dtype=np.float32,
+        )
+
+    def _augment_observation(
+        self, observation: NDArray[np.float32]
+    ) -> NDArray[np.float32]:
+        budget = np.asarray(
+            [self.fires_remaining / self.max_fires], dtype=np.float32
+        )
+        return np.concatenate((np.asarray(observation, dtype=np.float32), budget))
+
+    def _augment_info(self, info: dict[str, Any]) -> dict[str, Any]:
+        augmented_info = dict(info)
+        augmented_info.update(
+            fires_used=self.fires_used,
+            fires_remaining=self.fires_remaining,
+        )
+        return augmented_info
+
+    def step(
+        self, action: int | np.integer[Any]
+    ) -> tuple[NDArray[np.float32], float, bool, bool, dict[str, Any]]:
+        if not self.action_space.contains(action):
+            raise ValueError(
+                f"invalid action {action!r}, expected 0 (WAIT) or 1 (FIRE)"
+            )
+
+        action_int = int(action)
+        if action_int == FIRE:
+            if self.fires_remaining == 0:
+                raise ValueError("FIRE budget exhausted")
+            self.fires_used += 1
+            self.fires_remaining -= 1
+
+        observation, reward, terminated, truncated, info = self.env.step(action_int)
+        if (
+            action_int == FIRE
+            and self.fires_remaining == 0
+            and not (terminated or truncated)
+        ):
+            terminated = True
+
+        return (
+            self._augment_observation(observation),
+            float(reward),
+            terminated,
+            truncated,
+            self._augment_info(info),
+        )
+
+    def reset(
+        self,
+        *,
+        seed: int | None = None,
+        options: dict[str, Any] | None = None,
+    ) -> tuple[NDArray[np.float32], dict[str, Any]]:
+        self.fires_used = 0
+        self.fires_remaining = self.max_fires
+        observation, info = self.env.reset(seed=seed, options=options)
+        return self._augment_observation(observation), self._augment_info(info)
