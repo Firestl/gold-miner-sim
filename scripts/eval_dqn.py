@@ -4,11 +4,14 @@ Generalization evaluation: episode ``i`` is played on the map drawn with
 ``map_seed = seed + i``, so a given seed range always scores the same map
 set (the default ``--episodes 100 --seed 1000`` matches the baseline's
 map seeds 1000-1099). Uses the same wrapper stack as training
-(DecisionIntervalWrapper) and the deterministic policy. Without
-``--render`` it runs headless at full speed; with ``--render`` the env
-auto-renders every physics tick and the renderer's internal
-``Clock.tick(60)`` already paces playback to real time, so no extra sleep
-is needed. Closing the window ends the current episode early.
+(SwingDecisionWrapper): the deterministic policy is queried only at real
+decision points -- while the hook is SWINGING -- where WAIT advances up
+to 10 physics ticks and FIRE auto-plays the whole extend/retract round
+trip as one variable-length transition. Without ``--render`` it runs
+headless at full speed; with ``--render`` the env auto-renders every
+physics tick and the renderer's internal ``Clock.tick(60)`` already paces
+playback to real time, so no extra sleep is needed. Closing the window
+ends the current episode early.
 
 Usage:
     uv run --group train python scripts/eval_dqn.py --episodes 100 --seed 1000
@@ -23,11 +26,11 @@ import numpy as np
 from stable_baselines3 import DQN
 
 from gold_miner_sim.env import GoldMinerEnv
-from gold_miner_sim.wrappers import DecisionIntervalWrapper
+from gold_miner_sim.wrappers import SwingDecisionWrapper
 
 
 def run_episode(
-    env: DecisionIntervalWrapper, model: DQN, map_seed: int, render: bool
+    env: SwingDecisionWrapper, model: DQN, map_seed: int, render: bool
 ) -> float:
     """Run one episode on the map drawn from ``map_seed``.
 
@@ -58,8 +61,8 @@ def main() -> None:
     parser.add_argument(
         "--model",
         type=str,
-        default="models/dqn_gold_miner_random.zip",
-        help="path to the saved model zip (default: models/dqn_gold_miner_random.zip)",
+        default="models/dqn_gold_miner_swing.zip",
+        help="path to the saved model zip (default: models/dqn_gold_miner_swing.zip)",
     )
     parser.add_argument(
         "--episodes",
@@ -90,7 +93,7 @@ def main() -> None:
         args.episodes if args.episodes is not None else (1 if args.render else 100)
     )
 
-    env: DecisionIntervalWrapper = DecisionIntervalWrapper(
+    env: SwingDecisionWrapper = SwingDecisionWrapper(
         GoldMinerEnv(
             render_mode="human" if args.render else None, map_mode="random"
         )

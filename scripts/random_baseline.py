@@ -2,11 +2,15 @@
 
 Samples a uniformly random action (WAIT/FIRE) at every decision step and
 reports the score distribution over a number of headless episodes on
-random maps. Episode ``i`` is played on the map drawn with
-``map_seed = seed + i``, so the default ``--episodes 100 --seed 1000``
-covers map seeds 1000-1099 — the same map set ``eval_dqn.py`` uses by
-default. The action space RNG is seeded once per run (not per episode),
-so different maps see different action sequences.
+random maps. With ``SwingDecisionWrapper`` the random policy only chooses
+at real decision points -- while the hook is SWINGING -- so its numbers
+are not directly comparable to the Milestone 3 ``DecisionIntervalWrapper``
+baseline and must be re-measured. Episode ``i`` is played on the map
+drawn with ``map_seed = seed + i``, so the default
+``--episodes 100 --seed 1000`` covers map seeds 1000-1099 — the same map
+set ``eval_dqn.py`` uses by default. The action space RNG is seeded once
+per run (not per episode), so different maps see different action
+sequences.
 
 Usage:
     uv run --group train python scripts/random_baseline.py
@@ -20,15 +24,16 @@ import argparse
 import numpy as np
 
 from gold_miner_sim.env import GoldMinerEnv
-from gold_miner_sim.wrappers import DecisionIntervalWrapper
+from gold_miner_sim.wrappers import SwingDecisionWrapper
 
 
-def run_episode(env: DecisionIntervalWrapper, map_seed: int) -> float:
+def run_episode(env: SwingDecisionWrapper, map_seed: int) -> float:
     """Run one headless episode with a uniformly random policy.
 
     Resets the environment with ``map_seed`` (which fixes the random map
     layout), then samples an action from the pre-seeded action space at
-    every decision step until the episode ends.
+    every decision step -- each time the hook is back SWINGING -- until
+    the episode ends.
 
     Returns the final score (accumulated decision-step reward).
     """
@@ -64,7 +69,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    env: DecisionIntervalWrapper = DecisionIntervalWrapper(
+    env: SwingDecisionWrapper = SwingDecisionWrapper(
         GoldMinerEnv(render_mode=None, map_mode="random")
     )
     # Seed the action RNG once for the whole run; re-seeding per episode
