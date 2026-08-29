@@ -19,10 +19,14 @@ GOLD/DIAMOND/ROCK x/y slots (indices 8, 9, 14, 15, 20, 21) so the agent
 cannot localize the objects.
 
 Trains SB3's DQN with default hyperparameters except the few set below,
-and saves the policy. The Monitor log path is derived from ``--output``:
+and saves the policy. Without ``--output`` the model is saved to the
+mode/seed-scoped default ``models/ablation/<observation>/seed_<seed>.zip``
+so different observation modes and training seeds never overwrite each
+other and Milestone 6 artifacts stay untouched; reproducing the M6
+artifact (``models/dqn_gold_miner_fire_budget.zip``) requires an explicit
+``--output``. The Monitor log path is derived from the output path:
 ``models/ablation/blind/seed_0.zip`` logs to
-``runs/ablation/blind/seed_0/monitor``, so different seeds/modes never
-overwrite each other.
+``runs/ablation/blind/seed_0/monitor``.
 
 Usage:
     uv run --group train python scripts/train_dqn.py
@@ -39,6 +43,11 @@ from stable_baselines3 import DQN
 from stable_baselines3.common.monitor import Monitor
 
 from gold_miner_sim.benchmark import make_benchmark_env
+
+
+def default_output_path(observation: str, seed: int) -> str:
+    """Default model path scoped by observation mode and training seed."""
+    return f"models/ablation/{observation}/seed_{seed}.zip"
 
 
 def monitor_log_filename(output_path: str) -> str:
@@ -90,17 +99,25 @@ def main() -> None:
     parser.add_argument(
         "--output",
         type=str,
-        default="models/dqn_gold_miner_fire_budget.zip",
+        default=None,
         help=(
-            "path to save the trained model zip "
-            "(default: models/dqn_gold_miner_fire_budget.zip)"
+            "path to save the trained model zip (default: "
+            "models/ablation/<observation>/seed_<seed>.zip); an explicit "
+            "path (e.g. Milestone 6's models/dqn_gold_miner_fire_budget.zip) "
+            "overrides it"
         ),
     )
     args = parser.parse_args()
 
-    monitor_log_path = monitor_log_filename(args.output)
+    output_path = (
+        args.output
+        if args.output is not None
+        else default_output_path(args.observation, args.seed)
+    )
+
+    monitor_log_path = monitor_log_filename(output_path)
     os.makedirs(os.path.dirname(monitor_log_path), exist_ok=True)
-    output_dir = os.path.dirname(args.output)
+    output_dir = os.path.dirname(output_path)
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
     env = Monitor(
@@ -117,7 +134,7 @@ def main() -> None:
         seed=args.seed,
     )
     model.learn(total_timesteps=args.timesteps)
-    model.save(args.output)
+    model.save(output_path)
     env.close()
 
 

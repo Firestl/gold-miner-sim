@@ -9,6 +9,9 @@ followed by ``FireBudgetWrapper(max_fires=3)``), so a policy can FIRE at
 most three times per episode. ``--observation`` selects the chain: a model
 trained with ``--observation blind`` MUST be evaluated with
 ``--observation blind`` (its object x/y inputs are masked to 0).
+Without ``--model`` the full condition falls back to the Milestone 6
+artifact ``models/dqn_gold_miner_fire_budget.zip``; blind mode requires an
+explicit ``--model`` (argparse exits with code 2 before any episode runs).
 The deterministic policy is queried only at real decision points. Without
 ``--render`` it runs headless at full speed; with ``--render`` the env
 auto-renders every physics tick and the renderer's internal
@@ -161,10 +164,11 @@ def main() -> None:
     parser.add_argument(
         "--model",
         type=str,
-        default="models/dqn_gold_miner_fire_budget.zip",
+        default=None,
         help=(
-            "path to the saved model zip "
-            "(default: models/dqn_gold_miner_fire_budget.zip)"
+            "path to the saved model zip (default: "
+            "models/dqn_gold_miner_fire_budget.zip with --observation full; "
+            "required with --observation blind)"
         ),
     )
     parser.add_argument(
@@ -208,6 +212,13 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    model_path = args.model
+    if model_path is None:
+        if args.observation == "blind":
+            parser.error("--model is required when --observation blind")
+        # Backward-compatible Milestone 6 default for the full condition.
+        model_path = "models/dqn_gold_miner_fire_budget.zip"
+
     episodes = (
         args.episodes if args.episodes is not None else (1 if args.render else 100)
     )
@@ -229,7 +240,7 @@ def main() -> None:
         observation_mode=args.observation,
         render_mode=inner_env_mode,
     )
-    model = DQN.load(args.model)
+    model = DQN.load(model_path)
     try:
         scores: list[float] = [
             run_episode(env, model, args.seed + i, args.render)
@@ -253,7 +264,7 @@ def main() -> None:
         write_json_output(
             args.json_output,
             observation=args.observation,
-            model=args.model,
+            model=model_path,
             episodes=episodes,
             seed=args.seed,
             dqn_metrics=dqn_metrics,
