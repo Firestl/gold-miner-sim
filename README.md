@@ -31,6 +31,21 @@ Baseline and evaluation therefore default to the same map set, seeds
 1000–1099 — that range is the test set, and any model is only comparable
 across runs if it is scored on exactly these maps.
 
+## Decision timing
+
+- Milestones 2-3 trained and evaluated on `DecisionIntervalWrapper`
+  (`src/gold_miner_sim/wrappers.py`): every agent action is repeated for
+  a fixed 10 physics ticks per `step()`. It is kept as a baseline.
+- From Milestone 4 on, training and evaluation use
+  `SwingDecisionWrapper`: the agent only decides while the hook is
+  SWINGING. `WAIT` advances the simulation by up to 10 ticks; `FIRE`
+  automatically plays out the whole extend/retract round trip and puts
+  all accumulated reward into that single transition (transitions are
+  variable-length by design).
+
+Random-baseline numbers from the Milestone 3 `DecisionIntervalWrapper`
+setup are not directly comparable and need to be re-measured.
+
 ## Commands
 
 Training-related scripts need the `train` dependency group
@@ -47,12 +62,12 @@ uv run python scripts/demo_episode.py --headless
 uv run --group train python scripts/random_baseline.py --episodes 100 --seed 1000
 
 # Train DQN for 200,000 steps on random maps
-# -> models/dqn_gold_miner_random.zip + Monitor logs in runs/dqn_random/
+# -> models/dqn_gold_miner_swing.zip + Monitor logs in runs/dqn_swing/
 uv run --group train python scripts/train_dqn.py --timesteps 200000 --seed 0
 
 # Evaluate the trained agent headless over 100 random maps (map seeds 1000-1099)
-uv run --group train python scripts/eval_dqn.py --model models/dqn_gold_miner_random.zip --episodes 100 --seed 1000
+uv run --group train python scripts/eval_dqn.py --model models/dqn_gold_miner_swing.zip --episodes 100 --seed 1000
 
 # Replay the trained agent in a Pygame window on the map from seed 1007 (~60 s real time)
-uv run --group train python scripts/eval_dqn.py --model models/dqn_gold_miner_random.zip --seed 1007 --render
+uv run --group train python scripts/eval_dqn.py --model models/dqn_gold_miner_swing.zip --seed 1007 --render
 ```
