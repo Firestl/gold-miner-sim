@@ -14,6 +14,11 @@ transition; see the class docstring).
 completed FIRE cycle, swings on for another ``ADVANCE_INTERVAL`` WAIT
 ticks before returning, so the next decision is never taken at the
 original firing angle (anti angle-pinning; see the class docstring).
+
+``ObjectPositionMaskWrapper`` is a pure observation post-processor: it
+zeros the GOLD/DIAMOND/ROCK x/y slots of the 27-dimensional benchmark
+observation (the Issue #13 "blind" ablation) and passes everything else
+through unchanged.
 """
 
 from __future__ import annotations
@@ -30,6 +35,11 @@ from gold_miner_sim.env import FIRE, WAIT, GoldMinerEnv, HookState
 DECISION_INTERVAL = 10  # Physics ticks executed per agent decision (1/6 s).
 SWING_WAIT_INTERVAL = 10  # Max physics ticks executed per WAIT decision.
 ADVANCE_INTERVAL = 10  # Post-FIRE SWINGING WAIT ticks before returning.
+
+# Slots of the 27-dim benchmark observation holding the GOLD / DIAMOND /
+# ROCK x, y coordinates (within each 6-value object block: x, y, radius,
+# value, retract_speed, active).
+OBJECT_POSITION_INDICES = (8, 9, 14, 15, 20, 21)
 
 # Shared wrapper type parameters: observation space, action space and the
 # wrapped env's own obs/act types all match ``GoldMinerEnv`` (the wrappers
@@ -352,3 +362,66 @@ class FireBudgetWrapper(_WrapperT):
         self.fires_remaining = self.max_fires
         observation, info = self.env.reset(seed=seed, options=options)
         return self._augment_observation(observation), self._augment_info(info)
+
+
+class ObjectPositionMaskWrapper(_WrapperT):
+    """Zero the object position slots of the 27-dim benchmark observation.
+
+    The Issue #13 "blind" observation ablation: the six slots holding the
+    GOLD / DIAMOND / ROCK x, y coordinates (``OBJECT_POSITION_INDICES``)
+    are set to 0.0 in every returned observation, so the agent can no
+    longer localize the objects while all other channels (hook state,
+    radii, values, retract speeds, active flags, FIRE budget) stay
+    identical to the "full" condition.
+
+    This wrapper is a pure observation post-processor: rewards, episode-end
+    flags, info mappings, action space and observation space bounds are
+    propagated unchanged (0.0 is already a legal value because the original
+    normalized x/y coordinates are non-negative). The inner environment's
+    arrays are never modified in place; every returned observation is a
+    fresh copy. The wrapped environment must already expose the
+    27-dimensional FireBudgetWrapper observation.
+    """
+
+    env: gymnasium.Env[NDArray[np.float32], int]
+
+    def __init__(self, env: gymnasium.Env[NDArray[np.float32], int]) -> None:
+        super().__init__(env)
+        inner_observation_space = env.observation_space
+        if not isinstance(inner_observation_space, spaces.Box):
+            raise TypeError(
+                "ObjectPositionMaskWrapper requires a Box observation space"
+            )
+        if inner_observation_space.shape != (27,):
+            raise ValueError(
+                "ObjectPositionMaskWrapper requires a 27-dimensional "
+                "observation space"
+            )
+
+        # Bounds are inherited unchanged: masking only writes 0.0, which the
+        # inner space already allows for the non-negative x/y slots.
+        self.observation_space = inner_observation_space
+
+    def _mask_observation(
+        self, observation: NDArray[np.float32]
+    ) -> NDArray[np.float32]:
+        masked = np.array(observation, dtype=np.float32, copy=True)
+        masked[list(OBJECT_POSITION_INDICES)] = 0.0
+        return masked
+
+    def step(
+        self, action: int | np.integer[Any]
+    ) -> tuple[NDArray[np.float32], float, bool, bool, dict[str, Any]]:
+        # No action validation here: the inner FireBudgetWrapper already
+        # enforces the Discrete(2) contract for the whole chain.
+        observation, reward, terminated, truncated, info = self.env.step(action)
+        return self._mask_observation(observation), reward, terminated, truncated, info
+
+    def reset(
+        self,
+        *,
+        seed: int | None = None,
+        options: dict[str, Any] | None = None,
+    ) -> tuple[NDArray[np.float32], dict[str, Any]]:
+        observation, info = self.env.reset(seed=seed, options=options)
+        return self._mask_observation(observation), info
