@@ -103,8 +103,10 @@ uv run python scripts/demo_episode.py --headless
 uv run --group train python scripts/random_baseline.py --episodes 100 --seed 1000
 
 # Train the M6 DQN for 200,000 steps on random maps with a 3-FIRE budget
-# -> models/dqn_gold_miner_fire_budget.zip + Monitor logs in runs/dqn_fire_budget/
-uv run --group train python scripts/train_dqn.py --timesteps 200000 --seed 0
+# -> models/dqn_gold_miner_fire_budget.zip + Monitor logs in runs/dqn_gold_miner_fire_budget/
+# (without --output the model would land on the M7 default
+# models/ablation/<observation>/seed_<seed>.zip instead)
+uv run --group train python scripts/train_dqn.py --timesteps 200000 --seed 0 --output models/dqn_gold_miner_fire_budget.zip
 
 # Evaluate the trained agent headless over the same 100 maps
 uv run --group train python scripts/eval_dqn.py --model models/dqn_gold_miner_fire_budget.zip --episodes 100 --seed 1000
@@ -114,16 +116,22 @@ uv run --group train python scripts/eval_dqn.py --model models/dqn_gold_miner_fi
 uv run --group train python scripts/eval_dqn.py --model models/dqn_gold_miner_fire_budget.zip --episodes 1 --seed 1007 --render
 uv run --group train python scripts/eval_dqn.py --model models/dqn_gold_miner_fire_budget.zip --episodes 1 --seed 1042 --render
 
-# M7 observation ablation: train one Full + one Blind model for a single seed
+# M7 observation ablation: train one Full + one Blind model for a single seed.
+# Omitting --output writes models/ablation/<observation>/seed_<seed>.zip
+# (plus the derived Monitor dir runs/ablation/<observation>/seed_<seed>/),
+# so modes and seeds never collide and M6 artifacts are never overwritten.
 # -> models/ablation/<mode>/seed_<n>.zip + Monitor logs in runs/ablation/<mode>/seed_<n>/
-uv run --group train python scripts/train_dqn.py --observation full --timesteps 200000 --seed 0 --output models/ablation/full/seed_0.zip
-uv run --group train python scripts/train_dqn.py --observation blind --timesteps 200000 --seed 0 --output models/ablation/blind/seed_0.zip
+uv run --group train python scripts/train_dqn.py --observation full --timesteps 200000 --seed 0
+uv run --group train python scripts/train_dqn.py --observation blind --timesteps 200000 --seed 0
 
-# Run the full paired experiment (10 sequential 200k runs, seeds 0-4) and
-# write the paired summary to runs/ablation/results.json
+# Run the full paired experiment (10 200k runs, seeds 0-4) and write the
+# paired summary to runs/ablation/results.json. --jobs controls concurrent
+# (train+eval) subprocesses (default: 5; --jobs 1 is fully sequential); each
+# child's output goes to runs/ablation/<mode>/seed_<n>/train.log and eval.log.
 uv run --group train python scripts/run_ablation.py
 
-# Evaluate one ablation model on the benchmark maps (match the training mode!)
+# Evaluate one ablation model on the benchmark maps (match the training mode!
+# --model is required with --observation blind)
 uv run --group train python scripts/eval_dqn.py --model models/ablation/blind/seed_0.zip --observation blind --episodes 100 --seed 1000 --json-output runs/ablation/blind/seed_0/eval.json
 
 # Compare FIRE angles of a paired Full/Blind model on selected maps (headless)
