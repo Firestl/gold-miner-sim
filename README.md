@@ -15,7 +15,10 @@ one physics tick (1/60 s).
   the observation contract, physics and determinism are unchanged, and a
   given seed always reproduces the same map.
 
-Training uses the random map; the demo stays on the fixed map.
+Training uses the random map; the demo stays on the fixed map. The current
+Milestone 6 benchmark adds a three-FIRE episode budget outside the physics
+environment, so the policy receives a 27th observation value containing the
+normalized FIREs remaining.
 
 ## Two different `--seed` meanings
 
@@ -29,7 +32,9 @@ Training uses the random map; the demo stays on the fixed map.
 
 Baseline and evaluation therefore default to the same map set, seeds
 1000–1099 — that range is the test set, and any model is only comparable
-across runs if it is scored on exactly these maps.
+across runs if it is scored on exactly these maps. Both scripts report
+`mean`, `std`, `min`, `max`, `full_score_count` (score exactly 800), and
+`full_score_rate`.
 
 ## Decision timing
 
@@ -48,6 +53,11 @@ across runs if it is scored on exactly these maps.
   completed FIRE cycle, swings on for another 10 WAIT ticks before
   returning. The next decision is therefore never taken at the original
   firing angle.
+- Milestone 6 wraps that chain in `FireBudgetWrapper(max_fires=3)`. WAIT does
+  not consume budget; every FIRE consumes one budget even when the hook is
+  empty or times out. The third FIRE transition completes normally (including
+  its reward and post-FIRE advance), then ends the episode if the inner
+  environment has not already timed out.
 
 Random-baseline numbers from earlier wrapper setups are not directly
 comparable and need to be re-measured per wrapper.
@@ -64,16 +74,24 @@ uv run python scripts/demo_episode.py
 # Run the same episode headless at full speed
 uv run python scripts/demo_episode.py --headless
 
-# Random-policy baseline over 100 random maps (map seeds 1000-1099)
+# M6 random-policy baseline over the benchmark maps (seeds 1000-1099)
 uv run --group train python scripts/random_baseline.py --episodes 100 --seed 1000
 
-# Train DQN for 200,000 steps on random maps
-# -> models/dqn_gold_miner_advance.zip + Monitor logs in runs/dqn_advance/
+# Train the M6 DQN for 200,000 steps on random maps with a 3-FIRE budget
+# -> models/dqn_gold_miner_fire_budget.zip + Monitor logs in runs/dqn_fire_budget/
 uv run --group train python scripts/train_dqn.py --timesteps 200000 --seed 0
 
-# Evaluate the trained agent headless over 100 random maps (map seeds 1000-1099)
-uv run --group train python scripts/eval_dqn.py --model models/dqn_gold_miner_advance.zip --episodes 100 --seed 1000
+# Evaluate the trained agent headless over the same 100 maps
+uv run --group train python scripts/eval_dqn.py --model models/dqn_gold_miner_fire_budget.zip --episodes 100 --seed 1000
 
-# Replay the trained agent in a Pygame window on the map from seed 1007 (~60 s real time)
-uv run --group train python scripts/eval_dqn.py --model models/dqn_gold_miner_advance.zip --seed 1007 --render
+# Replay the trained agent in a Pygame window on individual benchmark maps
+uv run --group train python scripts/eval_dqn.py --model models/dqn_gold_miner_fire_budget.zip --episodes 1 --seed 1000 --render
+uv run --group train python scripts/eval_dqn.py --model models/dqn_gold_miner_fire_budget.zip --episodes 1 --seed 1007 --render
+uv run --group train python scripts/eval_dqn.py --model models/dqn_gold_miner_fire_budget.zip --episodes 1 --seed 1042 --render
 ```
+
+The evaluation output includes `mean_random`, `mean_dqn`, and
+`delta = mean_dqn - mean_random`; the DQN metrics are computed on exactly the
+same map seeds as the random baseline. The `--render` commands above are
+single-map replays and retain the human Pygame view without changing the
+headless 100-map benchmark.
