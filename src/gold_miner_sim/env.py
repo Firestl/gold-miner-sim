@@ -125,7 +125,7 @@ def sweep_circle_hit(
 class GoldMinerEnv(gymnasium.Env[NDArray[np.float32], int]):
     """Single-agent Gold Miner environment with a fixed map (V0)."""
 
-    metadata = {"render_modes": ["human"], "render_fps": 60}
+    metadata = {"render_modes": ["human"], "render_fps": 60}  # noqa: RUF012
 
     def __init__(self, render_mode: str | None = None) -> None:
         super().__init__()
@@ -208,7 +208,7 @@ class GoldMinerEnv(gymnasium.Env[NDArray[np.float32], int]):
         return self._observation(), self._info()
 
     def step(
-        self, action: int
+        self, action: int | np.integer[Any]
     ) -> tuple[NDArray[np.float32], float, bool, bool, dict[str, Any]]:
         # Validate against action_space so both Python ints and NumPy
         # integers (Discrete.sample() returns np.int64) are accepted, and

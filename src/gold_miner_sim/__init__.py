@@ -9,4 +9,4 @@ from gold_miner_sim.env import (
     ObjectType,
 )
 
-__all__ = ["GoldMinerEnv", "HookState", "GameObject", "ObjectType", "WAIT", "FIRE"]
+__all__ = ["FIRE", "WAIT", "GameObject", "GoldMinerEnv", "HookState", "ObjectType"]
