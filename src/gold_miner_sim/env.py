@@ -1,7 +1,11 @@
 """Minimal, deterministic Gold Miner Gymnasium environment (Milestone 1).
 
 One ``step()`` advances the simulation by exactly one physics tick (1/60 s).
-No wall-clock time, no randomness, no reward shaping.
+No wall-clock time, no reward shaping. The map layout depends on
+``map_mode``: ``"fixed"`` (default) is fully deterministic, while
+``"random"`` draws spawn points from RANDOM_SPAWN_POINTS through the
+Gymnasium-seeded ``np_random`` RNG, so a given seed always reproduces the
+same maps.
 """
 
 from __future__ import annotations
@@ -66,7 +70,7 @@ class ObjectType(enum.Enum):
 
 @dataclass
 class GameObject:
-    """A collectible circular object on the fixed map."""
+    """A collectible circular object on the map."""
 
     type: ObjectType
     x: float
@@ -75,6 +79,43 @@ class GameObject:
     value: float
     retract_speed: float  # Loaded retract speed (px/s).
     active: bool = True
+
+
+# ---------------------------------------------------------------------------
+# Map layout (shared by both map modes)
+# ---------------------------------------------------------------------------
+# Object specs in fixed slot order: (type, radius, value, retract_speed).
+# Only the center position varies between map modes.
+_OBJECT_SPECS: tuple[tuple[ObjectType, float, float, float], ...] = (
+    (ObjectType.GOLD, 30.0, 250.0, 140.0),
+    (ObjectType.DIAMOND, 18.0, 500.0, 280.0),
+    (ObjectType.ROCK, 34.0, 50.0, 90.0),
+)
+
+# Fixed-map centers (V0 contract) in the same slot order; do not change.
+_FIXED_POSITIONS: tuple[tuple[float, float], ...] = (
+    (315.0, 300.0),
+    (465.0, 450.0),
+    (610.0, 340.0),
+)
+
+# Candidate centers (x, y) in px for map_mode="random": each reset draws
+# three points without replacement and assigns them, in slot order, to
+# GOLD / DIAMOND / ROCK.
+RANDOM_SPAWN_POINTS = (
+    (173.0, 230.0),
+    (159.0, 314.0),
+    (283.0, 269.0),
+    (250.0, 416.0),
+    (347.0, 352.0),
+    (387.0, 425.0),
+    (450.0, 490.0),
+    (499.0, 346.0),
+    (583.0, 436.0),
+    (615.0, 356.0),
+    (714.0, 384.0),
+    (672.0, 256.0),
+)
 
 
 def sweep_circle_hit(
@@ -123,17 +164,24 @@ def sweep_circle_hit(
 
 
 class GoldMinerEnv(gymnasium.Env[NDArray[np.float32], int]):
-    """Single-agent Gold Miner environment with a fixed map (V0)."""
+    """Single-agent Gold Miner environment (V0) with a fixed or random map."""
 
     metadata = {"render_modes": ["human"], "render_fps": 60}  # noqa: RUF012
 
-    def __init__(self, render_mode: str | None = None) -> None:
+    def __init__(
+        self, render_mode: str | None = None, map_mode: str = "fixed"
+    ) -> None:
         super().__init__()
         if render_mode not in (None, "human"):
             raise ValueError(
                 f"render_mode must be None or 'human', got {render_mode!r}"
             )
+        if map_mode not in ("fixed", "random"):
+            raise ValueError(
+                f"map_mode must be 'fixed' or 'random', got {map_mode!r}"
+            )
         self.render_mode = render_mode
+        self.map_mode = map_mode
         self.action_space = spaces.Discrete(2)
         # 8 hook/global values + 3 objects * 6 values, all normalized to [-1, 1].
         self.observation_space = spaces.Box(
@@ -176,32 +224,27 @@ class GoldMinerEnv(gymnasium.Env[NDArray[np.float32], int]):
         self.rope_length = MIN_ROPE_LENGTH
         self.attached_object = None
         self._ticks = 0
-        # Fixed map: fresh dataclass instances on every reset, fixed order.
+        # Fresh dataclass instances on every reset, fixed slot order
+        # (GOLD / DIAMOND / ROCK); map_mode only picks the centers.
+        positions: tuple[tuple[float, float], ...]
+        if self.map_mode == "fixed":
+            positions = _FIXED_POSITIONS
+        else:
+            # Three distinct spawn points without replacement, drawn from the
+            # Gymnasium-seeded RNG so a given seed always yields the same
+            # maps. Coordinates are used verbatim (exact tuple constants).
+            indices = self.np_random.choice(
+                len(RANDOM_SPAWN_POINTS), size=3, replace=False
+            )
+            positions = tuple(RANDOM_SPAWN_POINTS[int(i)] for i in indices)
         self.objects = [
             GameObject(
-                ObjectType.GOLD,
-                x=315.0,
-                y=300.0,
-                radius=30.0,
-                value=250.0,
-                retract_speed=140.0,
-            ),
-            GameObject(
-                ObjectType.DIAMOND,
-                x=465.0,
-                y=450.0,
-                radius=18.0,
-                value=500.0,
-                retract_speed=280.0,
-            ),
-            GameObject(
-                ObjectType.ROCK,
-                x=610.0,
-                y=340.0,
-                radius=34.0,
-                value=50.0,
-                retract_speed=90.0,
-            ),
+                obj_type, x=x, y=y, radius=radius, value=value,
+                retract_speed=speed,
+            )
+            for (obj_type, radius, value, speed), (x, y) in zip(
+                _OBJECT_SPECS, positions
+            )
         ]
         # First frame for human mode (a no-op when render_mode is None).
         self.render()
