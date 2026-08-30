@@ -95,6 +95,23 @@ the first object intersected by the current legal ray, with target priority
 GOLD → DIAMOND → ROCK. It does not train a model or read per-episode state
 from the environment.
 
+## Strong DQN v2 (Milestone 10)
+
+`scripts/train_strong_dqn.py` is an independent training entry point. Its
+default recipe uses `gamma=1.0`, `n_steps=5`, a `[256, 256]` MLP, a 200k
+replay buffer, batch size 256, and a 1M-transition budget. Every 25k
+transitions it evaluates deterministic behavior on maps 1000–1019 and saves
+the highest-mean checkpoint to
+`models/strong_dqn/seed_<seed>/best_model.zip`; the final learner is saved
+separately as `final_model.zip`. The per-seed history is written to
+`runs/strong_dqn/seed_<seed>/evaluations.json`.
+
+Run the frozen recipe sequentially for seeds 0–4 with
+`scripts/run_strong_dqn.py`. After the recipe and best checkpoints are fixed,
+`scripts/eval_strong_dqn.py --split validation` evaluates maps 1000–1099 and
+`scripts/eval_strong_dqn.py --split test` evaluates the held-out maps
+2000–2099.
+
 ## Commands
 
 Training-related scripts need the `train` dependency group
@@ -145,6 +162,15 @@ uv run --group train python scripts/replay_ablation.py --full-model models/ablat
 
 # M8 observation-only Geometry Oracle over the benchmark maps (seeds 1000-1099)
 uv run python scripts/oracle_baseline.py --episodes 100 --seed 1000
+
+# M10 Strong DQN v2: one seed (run on the GPU server)
+uv run --group train python scripts/train_strong_dqn.py --seed 0
+
+# M10 Strong DQN v2: sequential seeds 0-4 and 100-map validation
+uv run --group train python scripts/run_strong_dqn.py
+
+# M10 held-out evaluation, only after freezing the recipe/checkpoints
+uv run --group train python scripts/eval_strong_dqn.py --split test
 
 # Trace FIRE decisions for a selected map, or open the human renderer
 uv run python scripts/oracle_baseline.py --episodes 1 --seed 1000 --trace
