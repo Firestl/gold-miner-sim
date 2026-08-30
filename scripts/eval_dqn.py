@@ -8,10 +8,13 @@ Uses the shared benchmark chain from
 followed by ``FireBudgetWrapper(max_fires=3)``), so a policy can FIRE at
 most three times per episode. ``--observation`` selects the chain: a model
 trained with ``--observation blind`` MUST be evaluated with
-``--observation blind`` (its object x/y inputs are masked to 0).
+``--observation blind`` (its object x/y inputs are masked to 0), and a
+model trained with ``--observation polar`` MUST be evaluated with
+``--observation polar`` (its position inputs are Polar angle/distance).
 Without ``--model`` the full condition falls back to the Milestone 6
-artifact ``models/dqn_gold_miner_fire_budget.zip``; blind mode requires an
-explicit ``--model`` (argparse exits with code 2 before any episode runs).
+artifact ``models/dqn_gold_miner_fire_budget.zip``; blind and polar modes
+require an explicit ``--model`` (argparse exits with code 2 before any
+episode runs).
 The deterministic policy is queried only at real decision points. Without
 ``--render`` it runs headless at full speed; with ``--render`` the env
 auto-renders every physics tick and the renderer's internal
@@ -28,6 +31,7 @@ Usage:
     uv run --group train python scripts/eval_dqn.py --episodes 100 --seed 1000
     uv run --group train python scripts/eval_dqn.py --episodes 1 --seed 1007 --render
     uv run --group train python scripts/eval_dqn.py --model models/ablation/blind/seed_0.zip --observation blind --json-output runs/ablation/blind/seed_0/eval.json
+    uv run --group train python scripts/eval_dqn.py --model models/representation/polar/seed_0.zip --observation polar --json-output runs/representation/polar/seed_0/eval.json
 """
 
 from __future__ import annotations
@@ -168,17 +172,18 @@ def main() -> None:
         help=(
             "path to the saved model zip (default: "
             "models/dqn_gold_miner_fire_budget.zip with --observation full; "
-            "required with --observation blind)"
+            "required with --observation blind or polar)"
         ),
     )
     parser.add_argument(
         "--observation",
         type=str,
-        choices=["full", "blind"],
+        choices=["full", "blind", "polar"],
         default="full",
         help=(
             "evaluation env chain; a blind-trained model MUST be evaluated "
-            "with 'blind' (default: full)"
+            "with 'blind' and a polar-trained model with 'polar' "
+            "(default: full)"
         ),
     )
     parser.add_argument(
@@ -216,6 +221,8 @@ def main() -> None:
     if model_path is None:
         if args.observation == "blind":
             parser.error("--model is required when --observation blind")
+        if args.observation == "polar":
+            parser.error("--model is required when --observation polar")
         # Backward-compatible Milestone 6 default for the full condition.
         model_path = "models/dqn_gold_miner_fire_budget.zip"
 

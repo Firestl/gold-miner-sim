@@ -13,17 +13,21 @@ returning, so the next decision is never taken at the original firing
 angle (anti angle-pinning). The outer wrapper limits each episode to three
 FIRE actions and appends the normalized FIRE budget to the observation.
 
-Observation modes (Issue #13 ablation): ``--observation full`` (default)
-uses the complete 27-dim observation; ``--observation blind`` zeroes the
-GOLD/DIAMOND/ROCK x/y slots (indices 8, 9, 14, 15, 20, 21) so the agent
-cannot localize the objects.
+Observation modes (Issue #13 / #17 ablations): ``--observation full``
+(default) uses the complete 27-dim observation; ``--observation blind``
+zeroes the GOLD/DIAMOND/ROCK x/y slots (indices 8, 9, 14, 15, 20, 21) so
+the agent cannot localize the objects; ``--observation polar`` rewrites
+those slots from Cartesian (x, y) into Polar (target_angle, distance)
+relative to the hook anchor while keeping every other slot unchanged.
 
 Trains SB3's DQN with default hyperparameters except the few set below,
 and saves the policy. Without ``--output`` the model is saved to the
-mode/seed-scoped default ``models/ablation/<observation>/seed_<seed>.zip``
-so different observation modes and training seeds never overwrite each
-other and Milestone 6 artifacts stay untouched; reproducing the M6
-artifact (``models/dqn_gold_miner_fire_budget.zip``) requires an explicit
+mode/seed-scoped default: ``models/representation/polar/seed_<seed>.zip``
+for the polar condition (Issue #17 representation experiment) and
+``models/ablation/<observation>/seed_<seed>.zip`` otherwise, so different
+observation modes and training seeds never overwrite each other and
+Milestone 6 artifacts stay untouched; reproducing the M6 artifact
+(``models/dqn_gold_miner_fire_budget.zip``) requires an explicit
 ``--output``. The Monitor log path is derived from the output path:
 ``models/ablation/blind/seed_0.zip`` logs to
 ``runs/ablation/blind/seed_0/monitor``.
@@ -32,6 +36,7 @@ Usage:
     uv run --group train python scripts/train_dqn.py
     uv run --group train python scripts/train_dqn.py --timesteps 200000 --seed 1
     uv run --group train python scripts/train_dqn.py --observation blind --timesteps 200000 --seed 0 --output models/ablation/blind/seed_0.zip
+    uv run --group train python scripts/train_dqn.py --observation polar --timesteps 200000 --seed 0 --output models/representation/polar/seed_0.zip
 """
 
 from __future__ import annotations
@@ -46,7 +51,13 @@ from gold_miner_sim.benchmark import make_benchmark_env
 
 
 def default_output_path(observation: str, seed: int) -> str:
-    """Default model path scoped by observation mode and training seed."""
+    """Default model path scoped by observation mode and training seed.
+
+    The Issue #17 polar representation experiment keeps its own artifact
+    directory, separate from the Milestone 7 ablation layout.
+    """
+    if observation == "polar":
+        return f"models/representation/polar/seed_{seed}.zip"
     return f"models/ablation/{observation}/seed_{seed}.zip"
 
 
@@ -88,12 +99,14 @@ def main() -> None:
     parser.add_argument(
         "--observation",
         type=str,
-        choices=["full", "blind"],
+        choices=["full", "blind", "polar"],
         default="full",
         help=(
             "observation mode: 'full' uses the complete 27-dim "
             "observation, 'blind' masks the object x/y slots "
-            "(indices 8, 9, 14, 15, 20, 21) to 0 (default: full)"
+            "(indices 8, 9, 14, 15, 20, 21) to 0, 'polar' rewrites "
+            "those slots into (target_angle, distance) relative to the "
+            "hook anchor (default: full)"
         ),
     )
     parser.add_argument(
@@ -102,9 +115,10 @@ def main() -> None:
         default=None,
         help=(
             "path to save the trained model zip (default: "
-            "models/ablation/<observation>/seed_<seed>.zip); an explicit "
-            "path (e.g. Milestone 6's models/dqn_gold_miner_fire_budget.zip) "
-            "overrides it"
+            "models/representation/polar/seed_<seed>.zip for polar, "
+            "models/ablation/<observation>/seed_<seed>.zip otherwise); an "
+            "explicit path (e.g. Milestone 6's "
+            "models/dqn_gold_miner_fire_budget.zip) overrides it"
         ),
     )
     args = parser.parse_args()
