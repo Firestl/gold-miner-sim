@@ -2,10 +2,13 @@
 
 Single source of truth for the Milestone 6 chain
 ``GoldMinerEnv(map_mode="random") -> SwingAdvanceDecisionWrapper ->
-FireBudgetWrapper(max_fires=3)``, plus the Issue #13 observation ablation:
-``observation_mode="blind"`` additionally wraps
+FireBudgetWrapper(max_fires=3)``, plus the observation ablations: the
+Issue #13 ``observation_mode="blind"`` additionally wraps
 ``ObjectPositionMaskWrapper`` around the chain so the GOLD / DIAMOND /
-ROCK x/y observation slots are zeroed.
+ROCK x/y observation slots are zeroed, and the Issue #17
+``observation_mode="polar"`` instead wraps
+``ObjectPolarRepresentationWrapper`` so those slots are rewritten from
+Cartesian (x, y) into Polar (target_angle, distance).
 """
 
 from __future__ import annotations
@@ -17,11 +20,12 @@ from numpy.typing import NDArray
 from gold_miner_sim.env import GoldMinerEnv
 from gold_miner_sim.wrappers import (
     FireBudgetWrapper,
+    ObjectPolarRepresentationWrapper,
     ObjectPositionMaskWrapper,
     SwingAdvanceDecisionWrapper,
 )
 
-OBSERVATION_MODES = ("full", "blind")
+OBSERVATION_MODES = ("full", "blind", "polar")
 
 
 def make_benchmark_env(
@@ -31,8 +35,10 @@ def make_benchmark_env(
     """Build the random-map benchmark chain for ``observation_mode``.
 
     ``"full"`` returns the unmodified 27-dim benchmark chain; ``"blind"``
-    additionally masks the object position slots to 0 (Issue #13). Raises
-    ``ValueError`` for unknown modes.
+    additionally masks the object position slots to 0 (Issue #13);
+    ``"polar"`` additionally rewrites those slots from Cartesian (x, y)
+    into Polar (target_angle, distance) relative to the hook anchor
+    (Issue #17). Raises ``ValueError`` for unknown modes.
     """
     if observation_mode not in OBSERVATION_MODES:
         raise ValueError(
@@ -47,4 +53,6 @@ def make_benchmark_env(
     )
     if observation_mode == "blind":
         return ObjectPositionMaskWrapper(env)
+    if observation_mode == "polar":
+        return ObjectPolarRepresentationWrapper(env)
     return env

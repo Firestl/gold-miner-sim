@@ -19,10 +19,16 @@ original firing angle (anti angle-pinning; see the class docstring).
 zeros the GOLD/DIAMOND/ROCK x/y slots of the 27-dimensional benchmark
 observation (the Issue #13 "blind" ablation) and passes everything else
 through unchanged.
+
+``ObjectPolarRepresentationWrapper`` is the Issue #17 representation
+ablation: it rewrites the same six position slots from Cartesian
+``(x, y)`` into Polar ``(target_angle, distance)`` relative to the hook
+anchor, leaving every other slot and the environment dynamics unchanged.
 """
 
 from __future__ import annotations
 
+import math
 from typing import Any, cast
 
 import gymnasium
@@ -30,7 +36,17 @@ import numpy as np
 from gymnasium import spaces
 from numpy.typing import NDArray
 
-from gold_miner_sim.env import FIRE, WAIT, GoldMinerEnv, HookState
+from gold_miner_sim.env import (
+    ANCHOR,
+    FIRE,
+    HEIGHT,
+    MAX_ANGLE,
+    MAX_ROPE_LENGTH,
+    WAIT,
+    WIDTH,
+    GoldMinerEnv,
+    HookState,
+)
 
 DECISION_INTERVAL = 10  # Physics ticks executed per agent decision (1/6 s).
 SWING_WAIT_INTERVAL = 10  # Max physics ticks executed per WAIT decision.
@@ -40,6 +56,11 @@ ADVANCE_INTERVAL = 10  # Post-FIRE SWINGING WAIT ticks before returning.
 # ROCK x, y coordinates (within each 6-value object block: x, y, radius,
 # value, retract_speed, active).
 OBJECT_POSITION_INDICES = (8, 9, 14, 15, 20, 21)
+
+# One (x_index, y_index, active_index) triple per object block (GOLD /
+# DIAMOND / ROCK): the Cartesian position slots rewritten by
+# ObjectPolarRepresentationWrapper and the active flag guarding them.
+OBJECT_POLAR_BLOCKS = ((8, 9, 13), (14, 15, 19), (20, 21, 25))
 
 # Shared wrapper type parameters: observation space, action space and the
 # wrapped env's own obs/act types all match ``GoldMinerEnv`` (the wrappers
@@ -425,3 +446,94 @@ class ObjectPositionMaskWrapper(_WrapperT):
     ) -> tuple[NDArray[np.float32], dict[str, Any]]:
         observation, info = self.env.reset(seed=seed, options=options)
         return self._mask_observation(observation), info
+
+
+class ObjectPolarRepresentationWrapper(_WrapperT):
+    """Rewrite object position slots from Cartesian (x, y) into Polar.
+
+    The Issue #17 representation ablation: for every active object block
+    the two position slots (``OBJECT_POLAR_BLOCKS``) are replaced with
+
+    * ``target_angle / MAX_ANGLE`` -- angle of the object center relative
+      to the hook anchor using the environment's angle convention (0 deg
+      straight down, negative left, positive right), i.e.
+      ``degrees(atan2(dx, dy))`` with ``dx, dy`` measured from ``ANCHOR``;
+    * ``center_distance / MAX_ROPE_LENGTH`` -- anchor-to-center Euclidean
+      distance.
+
+    The transform is applied only to active blocks (``active > 0.5``);
+    inactive blocks are already all-zero by ``GoldMinerEnv`` contract and
+    are left untouched, so no phantom target at (0, 0) is ever created.
+    The other 21 slots (hook state, radii, values, retract speeds, active
+    flags, FIRE budget) pass through unchanged, and shape/dtype stay
+    ``(27,) float32``.
+
+    This wrapper is a pure observation post-processor: rewards, episode-end
+    flags, info mappings, action space and observation space bounds are
+    propagated unchanged (normalized angle is within [-1, 1] and normalized
+    distance within [0, 1], both inside the inner space bounds). The inner
+    environment's arrays are never modified in place; every returned
+    observation is a fresh copy. The wrapped environment must already
+    expose the 27-dimensional FireBudgetWrapper observation.
+    """
+
+    env: gymnasium.Env[NDArray[np.float32], int]
+
+    def __init__(self, env: gymnasium.Env[NDArray[np.float32], int]) -> None:
+        super().__init__(env)
+        inner_observation_space = env.observation_space
+        if not isinstance(inner_observation_space, spaces.Box):
+            raise TypeError(
+                "ObjectPolarRepresentationWrapper requires a Box observation space"
+            )
+        if inner_observation_space.shape != (27,):
+            raise ValueError(
+                "ObjectPolarRepresentationWrapper requires a 27-dimensional "
+                "observation space"
+            )
+
+        # Bounds are inherited unchanged: normalized angle stays in [-1, 1]
+        # and normalized distance in [0, 1], inside the inner [-1, 1] slots.
+        self.observation_space = inner_observation_space
+
+    def _polarize_observation(
+        self, observation: NDArray[np.float32]
+    ) -> NDArray[np.float32]:
+        polarized = np.array(observation, dtype=np.float32, copy=True)
+        for x_index, y_index, active_index in OBJECT_POLAR_BLOCKS:
+            if polarized[active_index] <= 0.5:
+                # Inactive block is all-zero by inner env contract; keep it
+                # at zero instead of polarizing (0, 0) into a fake target.
+                continue
+            x_px = float(polarized[x_index]) * WIDTH
+            y_px = float(polarized[y_index]) * HEIGHT
+            dx = x_px - ANCHOR[0]
+            dy = y_px - ANCHOR[1]
+            target_angle_deg = math.degrees(math.atan2(dx, dy))
+            distance_px = math.hypot(dx, dy)
+            polarized[x_index] = target_angle_deg / MAX_ANGLE
+            polarized[y_index] = distance_px / MAX_ROPE_LENGTH
+        return polarized
+
+    def step(
+        self, action: int | np.integer[Any]
+    ) -> tuple[NDArray[np.float32], float, bool, bool, dict[str, Any]]:
+        # No action validation here: the inner FireBudgetWrapper already
+        # enforces the Discrete(2) contract for the whole chain.
+        observation, reward, terminated, truncated, info = self.env.step(action)
+        return (
+            self._polarize_observation(observation),
+            reward,
+            terminated,
+            truncated,
+            info,
+        )
+
+    def reset(
+        self,
+        *,
+        seed: int | None = None,
+        options: dict[str, Any] | None = None,
+    ) -> tuple[NDArray[np.float32], dict[str, Any]]:
+        observation, info = self.env.reset(seed=seed, options=options)
+        return self._polarize_observation(observation), info
