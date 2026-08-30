@@ -236,8 +236,7 @@ def main() -> None:
     random_env.action_space.seed(args.seed)
     try:
         random_scores = [
-            run_random_episode(random_env, args.seed + i)
-            for i in range(episodes)
+            run_random_episode(random_env, args.seed + i) for i in range(episodes)
         ]
     finally:
         random_env.close()
@@ -250,8 +249,7 @@ def main() -> None:
     model = DQN.load(model_path)
     try:
         scores: list[float] = [
-            run_episode(env, model, args.seed + i, args.render)
-            for i in range(episodes)
+            run_episode(env, model, args.seed + i, args.render) for i in range(episodes)
         ]
     finally:
         env.close()

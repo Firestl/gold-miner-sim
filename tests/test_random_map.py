@@ -135,9 +135,7 @@ def test_random_mode_preserves_object_properties() -> None:
     env = GoldMinerEnv(map_mode="random")
     for seed in (0, 1, 2, 3, 42, 123):
         env.reset(seed=seed)
-        for obj, (obj_type, radius, value, speed) in zip(
-            env.objects, FIXED_SPECS
-        ):
+        for obj, (obj_type, radius, value, speed) in zip(env.objects, FIXED_SPECS):
             assert obj.type is obj_type
             assert obj.radius == radius
             assert obj.value == value

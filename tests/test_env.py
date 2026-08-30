@@ -64,7 +64,9 @@ def _wait_until_swinging(env: GoldMinerEnv, max_steps: int = 400) -> None:
         assert steps < max_steps, "hook never returned to SWINGING"
 
 
-def _fire_at_angle(env: GoldMinerEnv, target_angle: float, tol: float = ANGLE_TOL) -> None:
+def _fire_at_angle(
+    env: GoldMinerEnv, target_angle: float, tol: float = ANGLE_TOL
+) -> None:
     """目的：WAIT 等待摆动到目标角附近后发射。
 
     输入：环境 env、目标角度 target_angle、容差 tol（默认 0.6°）。
@@ -348,7 +350,9 @@ def test_fire_has_no_effect_outside_swinging() -> None:
     assert env.hook_state is HookState.EXTENDING
 
 
-def _wait_until_state(env: GoldMinerEnv, state: HookState, max_steps: int = 400) -> None:
+def _wait_until_state(
+    env: GoldMinerEnv, state: HookState, max_steps: int = 400
+) -> None:
     """目的：不断 step(WAIT) 直到 hook_state 达到指定状态。
 
     输入：环境 env、目标状态 state，可选步数上限 max_steps（默认 400）。
@@ -439,8 +443,13 @@ def test_loaded_retract_gold() -> None:
     env = GoldMinerEnv()
     env.reset()
     _fire_at_angle(env, -30.0)  # -30° 射线距 GOLD 中心 1.9 px
-    _run_loaded_retract(env, slot=0, expected_type=ObjectType.GOLD,
-                        expected_value=250.0, expected_speed=140.0)
+    _run_loaded_retract(
+        env,
+        slot=0,
+        expected_type=ObjectType.GOLD,
+        expected_value=250.0,
+        expected_speed=140.0,
+    )
     # +250 奖励不得触发第二次。
     _, reward, _, truncated, _ = env.step(WAIT)
     assert reward == 0.0 and not truncated
@@ -456,8 +465,13 @@ def test_loaded_retract_diamond() -> None:
     env = GoldMinerEnv()
     env.reset()
     _fire_at_angle(env, 2.0)
-    _run_loaded_retract(env, slot=1, expected_type=ObjectType.DIAMOND,
-                        expected_value=500.0, expected_speed=280.0)
+    _run_loaded_retract(
+        env,
+        slot=1,
+        expected_type=ObjectType.DIAMOND,
+        expected_value=500.0,
+        expected_speed=280.0,
+    )
 
 
 def test_loaded_retract_rock() -> None:
@@ -469,8 +483,13 @@ def test_loaded_retract_rock() -> None:
     env = GoldMinerEnv()
     env.reset()
     _fire_at_angle(env, 31.0)
-    _run_loaded_retract(env, slot=2, expected_type=ObjectType.ROCK,
-                        expected_value=50.0, expected_speed=90.0)
+    _run_loaded_retract(
+        env,
+        slot=2,
+        expected_type=ObjectType.ROCK,
+        expected_value=50.0,
+        expected_speed=90.0,
+    )
 
 
 def test_hit_step_syncs_attached_object_to_hook_tip() -> None:
@@ -556,15 +575,25 @@ def test_collision_picks_nearest_object_on_same_ray() -> None:
     diamond.y = ANCHOR[1] + far_rope * math.cos(rad)
 
     _fire_at_angle(env, -30.0)
-    _run_loaded_retract(env, slot=0, expected_type=ObjectType.GOLD,
-                        expected_value=250.0, expected_speed=140.0)
+    _run_loaded_retract(
+        env,
+        slot=0,
+        expected_type=ObjectType.GOLD,
+        expected_value=250.0,
+        expected_speed=140.0,
+    )
     assert diamond.active is True  # 远处物体未被抓取
 
     # 角度冻结不变，下一次发射抓到（现在是最近的）DIAMOND。
     env.step(FIRE)
     assert env.hook_state is HookState.EXTENDING
-    _run_loaded_retract(env, slot=1, expected_type=ObjectType.DIAMOND,
-                        expected_value=500.0, expected_speed=280.0)
+    _run_loaded_retract(
+        env,
+        slot=1,
+        expected_type=ObjectType.DIAMOND,
+        expected_value=500.0,
+        expected_speed=280.0,
+    )
     assert env.objects[2].active is True
     assert env.score == pytest.approx(750.0)
 
@@ -610,7 +639,9 @@ def test_max_rope_boundary_collision_ignores_overshoot() -> None:
     tip_buggy = (ANCHOR[0] + overshoot_end * sin_a, ANCHOR[1] + overshoot_end * cos_a)
     eff_radius = gold.radius + 6.0  # HOOK_RADIUS
     assert sweep_circle_hit(*tip_prev, *tip_legal, gold.x, gold.y, eff_radius) is None
-    assert sweep_circle_hit(*tip_legal, *tip_buggy, gold.x, gold.y, eff_radius) is not None
+    assert (
+        sweep_circle_hit(*tip_legal, *tip_buggy, gold.x, gold.y, eff_radius) is not None
+    )
 
     env.step(FIRE)  # 从初始 -70° 摆动直接发射
     while env.hook_state is HookState.EXTENDING:
@@ -660,18 +691,33 @@ def test_observation_contract_reset_exact_26_values() -> None:
         [
             INITIAL_ANGLE / MAX_ANGLE,  # 0: 归一化角度 = -1
             1.0,  # 1: 摆动方向
-            1.0, 0.0, 0.0, 0.0,  # 2-5: one-hot SWINGING
+            1.0,
+            0.0,
+            0.0,
+            0.0,  # 2-5: one-hot SWINGING
             MIN_ROPE_LENGTH / MAX_ROPE_LENGTH,  # 6: 归一化绳长 50/460
             EPISODE_TIME / EPISODE_TIME,  # 7: 剩余时间 60/60 = 1
             # GOLD 槽位 (8-13)
-            315.0 / 900.0, 300.0 / 600.0, 30.0 / 100.0,
-            250.0 / 500.0, 140.0 / 360.0, 1.0,
+            315.0 / 900.0,
+            300.0 / 600.0,
+            30.0 / 100.0,
+            250.0 / 500.0,
+            140.0 / 360.0,
+            1.0,
             # DIAMOND 槽位 (14-19)
-            465.0 / 900.0, 450.0 / 600.0, 18.0 / 100.0,
-            500.0 / 500.0, 280.0 / 360.0, 1.0,
+            465.0 / 900.0,
+            450.0 / 600.0,
+            18.0 / 100.0,
+            500.0 / 500.0,
+            280.0 / 360.0,
+            1.0,
             # ROCK 槽位 (20-25)
-            610.0 / 900.0, 340.0 / 600.0, 34.0 / 100.0,
-            50.0 / 500.0, 90.0 / 360.0, 1.0,
+            610.0 / 900.0,
+            340.0 / 600.0,
+            34.0 / 100.0,
+            50.0 / 500.0,
+            90.0 / 360.0,
+            1.0,
         ],
         dtype=np.float32,
     )
@@ -732,12 +778,30 @@ def test_observation_contract_collected_object_slots_zeroed() -> None:
     assert list(obs[8:14]) == [0.0] * 6
     # 其余槽位保持契约值不变。
     assert obs[14:20] == pytest.approx(
-        np.array([465.0 / 900.0, 450.0 / 600.0, 18.0 / 100.0,
-                  500.0 / 500.0, 280.0 / 360.0, 1.0], dtype=np.float32)
+        np.array(
+            [
+                465.0 / 900.0,
+                450.0 / 600.0,
+                18.0 / 100.0,
+                500.0 / 500.0,
+                280.0 / 360.0,
+                1.0,
+            ],
+            dtype=np.float32,
+        )
     )
     assert obs[20:26] == pytest.approx(
-        np.array([610.0 / 900.0, 340.0 / 600.0, 34.0 / 100.0,
-                  50.0 / 500.0, 90.0 / 360.0, 1.0], dtype=np.float32)
+        np.array(
+            [
+                610.0 / 900.0,
+                340.0 / 600.0,
+                34.0 / 100.0,
+                50.0 / 500.0,
+                90.0 / 360.0,
+                1.0,
+            ],
+            dtype=np.float32,
+        )
     )
 
 

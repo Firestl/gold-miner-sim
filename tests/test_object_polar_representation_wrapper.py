@@ -185,9 +185,11 @@ class DiscreteObsEnv(gymnasium.Env[NDArray[np.float32], int]):
         self.observation_space = spaces.Discrete(3)
 
 
-def wrapper_chain(env: gymnasium.Env[Any, Any]) -> list[gymnasium.Wrapper[Any, Any]]:
+def wrapper_chain(
+    env: gymnasium.Env[Any, Any],
+) -> list[gymnasium.Wrapper[Any, Any, Any, Any]]:
     """Return every wrapper of the chain from outermost to the base env."""
-    chain: list[gymnasium.Wrapper[Any, Any]] = []
+    chain: list[gymnasium.Wrapper[Any, Any, Any, Any]] = []
     current: gymnasium.Env[Any, Any] = env
     while isinstance(current, gymnasium.Wrapper):
         chain.append(current)
@@ -212,9 +214,7 @@ def assert_lockstep(
             float(polar_observation[x_index]),
             float(polar_observation[y_index]),
         )
-        assert x_px == pytest.approx(
-            float(full_observation[x_index]) * WIDTH, abs=1e-2
-        )
+        assert x_px == pytest.approx(float(full_observation[x_index]) * WIDTH, abs=1e-2)
         assert y_px == pytest.approx(
             float(full_observation[y_index]) * HEIGHT, abs=1e-2
         )
@@ -391,9 +391,7 @@ def test_other_dimensions_unchanged() -> None:
 
     observation, _info = wrapped.reset()
 
-    assert np.array_equal(
-        observation[OTHER_INDICES], inner_observation[OTHER_INDICES]
-    )
+    assert np.array_equal(observation[OTHER_INDICES], inner_observation[OTHER_INDICES])
     # Includes the radius/value/speed slots of active blocks (10-12, 16-18).
     for block_index in (10, 11, 12, 16, 17, 18):
         assert observation[block_index] == inner_observation[block_index]
@@ -422,9 +420,7 @@ def test_reward_passthrough() -> None:
     ("terminated", "truncated"),
     [(True, False), (False, True)],
 )
-def test_terminated_truncated_passthrough(
-    terminated: bool, truncated: bool
-) -> None:
+def test_terminated_truncated_passthrough(terminated: bool, truncated: bool) -> None:
     inner = ScriptedPolarEnv(
         build_observation(((315.0, 300.0), None, None)),
         transitions=[(2.0, terminated, truncated, {})],
@@ -485,8 +481,10 @@ def test_observation_space_contract() -> None:
     assert space.dtype == np.float32
     observation, _info = wrapped.reset()
     assert space.contains(observation)
-    assert np.array_equal(space.low, inner.observation_space.low)
-    assert np.array_equal(space.high, inner.observation_space.high)
+    inner_space = inner.observation_space
+    assert isinstance(inner_space, spaces.Box)
+    assert np.array_equal(space.low, inner_space.low)
+    assert np.array_equal(space.high, inner_space.high)
 
 
 def test_no_inplace_modification_of_inner_observation() -> None:
@@ -534,9 +532,7 @@ def test_round_trip_over_all_random_spawn_points() -> None:
 
         observation, _info = wrapped.reset()
 
-        x_px, y_px = polar_to_cartesian(
-            float(observation[8]), float(observation[9])
-        )
+        x_px, y_px = polar_to_cartesian(float(observation[8]), float(observation[9]))
         assert x_px == pytest.approx(spawn_x, abs=1e-2)
         assert y_px == pytest.approx(spawn_y, abs=1e-2)
 
@@ -571,11 +567,9 @@ def test_full_polar_lockstep_dynamics_unchanged() -> None:
     assert np.any(full_obs[list(OBJECT_POSITION_INDICES)] != 0.0)
 
     for action in (WAIT, WAIT, FIRE, WAIT, FIRE, FIRE, WAIT):
-        full_obs, full_reward, full_done, full_trunc, full_info = full_env.step(
+        full_obs, full_reward, full_done, full_trunc, full_info = full_env.step(action)
+        polar_obs, polar_reward, polar_done, polar_trunc, polar_info = polar_env.step(
             action
-        )
-        polar_obs, polar_reward, polar_done, polar_trunc, polar_info = (
-            polar_env.step(action)
         )
         assert full_reward == polar_reward
         assert full_done == polar_done

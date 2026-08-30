@@ -279,9 +279,7 @@ def test_full_episode_reward_consistency_three_objects() -> None:
 # ---------------------------------------------------------------------------
 # F. 非法 action：fail loudly，不得静默当作 WAIT
 # ---------------------------------------------------------------------------
-@pytest.mark.parametrize(
-    "bad_action", [2, -1, 3, np.int64(7), np.int32(-2), 0.0, 1.0]
-)
+@pytest.mark.parametrize("bad_action", [2, -1, 3, np.int64(7), np.int32(-2), 0.0, 1.0])
 def test_invalid_action_raises_value_error(bad_action: object) -> None:
     """目的：action_space 之外的 action 应抛 ValueError 而非当作 WAIT。
 

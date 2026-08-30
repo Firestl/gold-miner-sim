@@ -138,13 +138,9 @@ def run_one(
     }
 
 
-def paired_rows(
-    runs: list[dict[str, Any]], seeds: list[int]
-) -> list[dict[str, Any]]:
+def paired_rows(runs: list[dict[str, Any]], seeds: list[int]) -> list[dict[str, Any]]:
     """Pair full/blind DQN means per training seed (paired_delta = full - blind)."""
-    by_condition_seed = {
-        (run["condition"], run["training_seed"]): run for run in runs
-    }
+    by_condition_seed = {(run["condition"], run["training_seed"]): run for run in runs}
     rows: list[dict[str, Any]] = []
     for seed in seeds:
         full_run = by_condition_seed[("full", seed)]

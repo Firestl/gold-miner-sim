@@ -168,18 +168,14 @@ class GoldMinerEnv(gymnasium.Env[NDArray[np.float32], int]):
 
     metadata = {"render_modes": ["human"], "render_fps": 60}  # noqa: RUF012
 
-    def __init__(
-        self, render_mode: str | None = None, map_mode: str = "fixed"
-    ) -> None:
+    def __init__(self, render_mode: str | None = None, map_mode: str = "fixed") -> None:
         super().__init__()
         if render_mode not in (None, "human"):
             raise ValueError(
                 f"render_mode must be None or 'human', got {render_mode!r}"
             )
         if map_mode not in ("fixed", "random"):
-            raise ValueError(
-                f"map_mode must be 'fixed' or 'random', got {map_mode!r}"
-            )
+            raise ValueError(f"map_mode must be 'fixed' or 'random', got {map_mode!r}")
         self.render_mode = render_mode
         self.map_mode = map_mode
         self.action_space = spaces.Discrete(2)
@@ -239,7 +235,11 @@ class GoldMinerEnv(gymnasium.Env[NDArray[np.float32], int]):
             positions = tuple(RANDOM_SPAWN_POINTS[int(i)] for i in indices)
         self.objects = [
             GameObject(
-                obj_type, x=x, y=y, radius=radius, value=value,
+                obj_type,
+                x=x,
+                y=y,
+                radius=radius,
+                value=value,
                 retract_speed=speed,
             )
             for (obj_type, radius, value, speed), (x, y) in zip(

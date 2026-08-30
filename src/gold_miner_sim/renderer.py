@@ -74,9 +74,7 @@ class HumanRenderer:
 
         pygame.draw.line(self._screen, _ROPE_COLOR, ANCHOR, (tip_x, tip_y), 2)
         pygame.draw.circle(self._screen, _ANCHOR_COLOR, ANCHOR, 5)
-        pygame.draw.circle(
-            self._screen, _HOOK_COLOR, (tip_x, tip_y), int(HOOK_RADIUS)
-        )
+        pygame.draw.circle(self._screen, _HOOK_COLOR, (tip_x, tip_y), int(HOOK_RADIUS))
         # Active objects only. An attached object is still active and its
         # center already follows the hook tip, so it is drawn here too.
         for obj in self.env.objects:

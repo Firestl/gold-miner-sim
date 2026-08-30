@@ -95,9 +95,7 @@ def main() -> None:
     args = parser.parse_args()
 
     env = FireBudgetWrapper(
-        SwingAdvanceDecisionWrapper(
-            GoldMinerEnv(render_mode=None, map_mode="random")
-        ),
+        SwingAdvanceDecisionWrapper(GoldMinerEnv(render_mode=None, map_mode="random")),
         max_fires=3,
     )
     # Seed the action RNG once for the whole run; re-seeding per episode

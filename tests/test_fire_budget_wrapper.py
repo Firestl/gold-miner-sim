@@ -160,9 +160,7 @@ def test_first_fire_decrements_budget_before_return() -> None:
 
 
 def test_second_fire_has_one_budget_unit_left() -> None:
-    inner = ScriptedBudgetEnv(
-        [(0.0, False, False, {}), (0.0, False, False, {})]
-    )
+    inner = ScriptedBudgetEnv([(0.0, False, False, {}), (0.0, False, False, {})])
     wrapped = FireBudgetWrapper(inner)
     wrapped.reset()
 
@@ -307,9 +305,7 @@ def test_info_fields_are_merged_with_inner_info() -> None:
     assert info["fires_remaining"] == 3
 
 
-@pytest.mark.parametrize(
-    "bad_action", [2, -1, 3, np.int64(7), np.int32(-2), 0.0, 1.0]
-)
+@pytest.mark.parametrize("bad_action", [2, -1, 3, np.int64(7), np.int32(-2), 0.0, 1.0])
 def test_invalid_actions_are_rejected_without_consuming_budget(
     bad_action: object,
 ) -> None:
@@ -342,9 +338,7 @@ def test_budget_resets_for_a_new_episode() -> None:
 
 
 def test_custom_max_fires_is_normalized_and_terminates_on_last_fire() -> None:
-    inner = ScriptedBudgetEnv(
-        [(0.0, False, False, {}), (2.0, False, False, {})]
-    )
+    inner = ScriptedBudgetEnv([(0.0, False, False, {}), (2.0, False, False, {})])
     wrapped = FireBudgetWrapper(inner, max_fires=2)
     observation, _info = wrapped.reset()
     assert observation[-1] == pytest.approx(1.0)

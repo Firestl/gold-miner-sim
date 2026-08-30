@@ -329,9 +329,7 @@ class FireBudgetWrapper(_WrapperT):
     def _augment_observation(
         self, observation: NDArray[np.float32]
     ) -> NDArray[np.float32]:
-        budget = np.asarray(
-            [self.fires_remaining / self.max_fires], dtype=np.float32
-        )
+        budget = np.asarray([self.fires_remaining / self.max_fires], dtype=np.float32)
         return np.concatenate((np.asarray(observation, dtype=np.float32), budget))
 
     def _augment_info(self, info: dict[str, Any]) -> dict[str, Any]:
@@ -415,8 +413,7 @@ class ObjectPositionMaskWrapper(_WrapperT):
             )
         if inner_observation_space.shape != (27,):
             raise ValueError(
-                "ObjectPositionMaskWrapper requires a 27-dimensional "
-                "observation space"
+                "ObjectPositionMaskWrapper requires a 27-dimensional observation space"
             )
 
         # Bounds are inherited unchanged: masking only writes 0.0, which the
@@ -435,8 +432,14 @@ class ObjectPositionMaskWrapper(_WrapperT):
     ) -> tuple[NDArray[np.float32], float, bool, bool, dict[str, Any]]:
         # No action validation here: the inner FireBudgetWrapper already
         # enforces the Discrete(2) contract for the whole chain.
-        observation, reward, terminated, truncated, info = self.env.step(action)
-        return self._mask_observation(observation), reward, terminated, truncated, info
+        observation, reward, terminated, truncated, info = self.env.step(int(action))
+        return (
+            self._mask_observation(observation),
+            float(reward),
+            terminated,
+            truncated,
+            info,
+        )
 
     def reset(
         self,
@@ -520,10 +523,10 @@ class ObjectPolarRepresentationWrapper(_WrapperT):
     ) -> tuple[NDArray[np.float32], float, bool, bool, dict[str, Any]]:
         # No action validation here: the inner FireBudgetWrapper already
         # enforces the Discrete(2) contract for the whole chain.
-        observation, reward, terminated, truncated, info = self.env.step(action)
+        observation, reward, terminated, truncated, info = self.env.step(int(action))
         return (
             self._polarize_observation(observation),
-            reward,
+            float(reward),
             terminated,
             truncated,
             info,

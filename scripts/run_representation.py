@@ -149,17 +149,13 @@ def run_one(
     }
 
 
-def paired_rows(
-    runs: list[dict[str, Any]], seeds: list[int]
-) -> list[dict[str, Any]]:
+def paired_rows(runs: list[dict[str, Any]], seeds: list[int]) -> list[dict[str, Any]]:
     """Pair Cartesian/Polar DQN means per training seed.
 
     ``paired_delta = polar_mean - cartesian_mean``: positive values mean
     the Polar representation scored higher for that seed.
     """
-    by_condition_seed = {
-        (run["condition"], run["training_seed"]): run for run in runs
-    }
+    by_condition_seed = {(run["condition"], run["training_seed"]): run for run in runs}
     rows: list[dict[str, Any]] = []
     for seed in seeds:
         cartesian_run = by_condition_seed[("cartesian", seed)]
@@ -179,9 +175,7 @@ def paired_rows(
 
 def aggregate_stats(paired: list[dict[str, Any]]) -> dict[str, float | int]:
     """Return population statistics across training seeds."""
-    cartesian = np.asarray(
-        [row["cartesian_mean"] for row in paired], dtype=np.float64
-    )
+    cartesian = np.asarray([row["cartesian_mean"] for row in paired], dtype=np.float64)
     polar = np.asarray([row["polar_mean"] for row in paired], dtype=np.float64)
     deltas = np.asarray([row["paired_delta"] for row in paired], dtype=np.float64)
     return {
@@ -191,9 +185,7 @@ def aggregate_stats(paired: list[dict[str, Any]]) -> dict[str, float | int]:
         "std_polar_across_training_seeds": float(np.std(polar)),
         "mean_paired_delta": float(np.mean(deltas)),
         "std_paired_delta": float(np.std(deltas)),
-        "seeds_where_polar_gt_cartesian": int(
-            np.count_nonzero(deltas > 0.0)
-        ),
+        "seeds_where_polar_gt_cartesian": int(np.count_nonzero(deltas > 0.0)),
         "number_of_seeds": len(paired),
     }
 
@@ -217,9 +209,7 @@ def print_run_table(runs: list[dict[str, Any]]) -> None:
 def print_paired_table(paired: list[dict[str, Any]]) -> None:
     """Print the per-seed paired Cartesian/Polar comparison."""
     print("paired per training seed:")
-    print(
-        f"{'seed':>4} | {'cartesian_mean':>14} | {'polar_mean':>10} | {'delta':>8}"
-    )
+    print(f"{'seed':>4} | {'cartesian_mean':>14} | {'polar_mean':>10} | {'delta':>8}")
     for row in paired:
         print(
             f"{row['training_seed']:>4} | {row['cartesian_mean']:>14.2f} | "
@@ -265,9 +255,7 @@ def main() -> None:
     runs: list[dict[str, Any]] = []
     for seed in seeds:
         for condition in CONDITIONS:
-            print(
-                f"=== run: seed={seed} condition={condition} ===", flush=True
-            )
+            print(f"=== run: seed={seed} condition={condition} ===", flush=True)
             runs.append(
                 run_one(condition, seed, args.timesteps, args.episodes, args.eval_seed)
             )

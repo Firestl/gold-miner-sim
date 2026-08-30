@@ -43,6 +43,7 @@ class ScriptedMaskEnv(gymnasium.Env[NDArray[np.float32], int]):
         self.observation_space = spaces.Box(
             low=-1.0, high=1.0, shape=(observation_size,), dtype=np.float32
         )
+        self._observation_shape: tuple[int, ...] = (observation_size,)
         self.transitions = transitions
         self.actions: list[int] = []
         self.reset_seed: int | None = None
@@ -58,7 +59,7 @@ class ScriptedMaskEnv(gymnasium.Env[NDArray[np.float32], int]):
         self.reset_seed = seed
         self.reset_options = options
         self.actions = []
-        return np.full(self.observation_space.shape, 0.5, dtype=np.float32), {
+        return np.full(self._observation_shape, 0.5, dtype=np.float32), {
             "inner_reset": True
         }
 
@@ -74,7 +75,7 @@ class ScriptedMaskEnv(gymnasium.Env[NDArray[np.float32], int]):
         # Distinct observations per step; non-zero everywhere including the
         # masked position slots, within the [-1, 1] space bounds.
         observation = np.full(
-            self.observation_space.shape,
+            self._observation_shape,
             0.25 + 0.05 * (index % 12),
             dtype=np.float32,
         )
@@ -116,9 +117,11 @@ class DiscreteObsEnv(gymnasium.Env[NDArray[np.float32], int]):
         self.observation_space = spaces.Discrete(3)
 
 
-def wrapper_chain(env: gymnasium.Env[Any, Any]) -> list[gymnasium.Wrapper[Any, Any]]:
+def wrapper_chain(
+    env: gymnasium.Env[Any, Any],
+) -> list[gymnasium.Wrapper[Any, Any, Any, Any]]:
     """Return every wrapper of the chain from outermost to the base env."""
-    chain: list[gymnasium.Wrapper[Any, Any]] = []
+    chain: list[gymnasium.Wrapper[Any, Any, Any, Any]] = []
     current: gymnasium.Env[Any, Any] = env
     while isinstance(current, gymnasium.Wrapper):
         chain.append(current)
@@ -191,9 +194,7 @@ def test_reward_passthrough() -> None:
     ("terminated", "truncated"),
     [(True, False), (False, True)],
 )
-def test_terminated_truncated_passthrough(
-    terminated: bool, truncated: bool
-) -> None:
+def test_terminated_truncated_passthrough(terminated: bool, truncated: bool) -> None:
     inner = ScriptedMaskEnv([(2.0, terminated, truncated, {})])
     wrapped = ObjectPositionMaskWrapper(inner)
     wrapped.reset()
@@ -244,8 +245,10 @@ def test_observation_space_contract() -> None:
     assert space.dtype == np.float32
     observation, _info = wrapped.reset()
     assert space.contains(observation)
-    assert np.array_equal(space.low, inner.observation_space.low)
-    assert np.array_equal(space.high, inner.observation_space.high)
+    inner_space = inner.observation_space
+    assert isinstance(inner_space, spaces.Box)
+    assert np.array_equal(space.low, inner_space.low)
+    assert np.array_equal(space.high, inner_space.high)
 
 
 def test_no_inplace_modification_of_inner_observation() -> None:
@@ -316,9 +319,7 @@ def test_factory_full_chain_has_no_mask_wrapper() -> None:
     chain = wrapper_chain(env)
     assert isinstance(env, FireBudgetWrapper)
     assert isinstance(env.env, SwingAdvanceDecisionWrapper)
-    assert not any(
-        isinstance(wrapper, ObjectPositionMaskWrapper) for wrapper in chain
-    )
+    assert not any(isinstance(wrapper, ObjectPositionMaskWrapper) for wrapper in chain)
 
 
 def test_factory_blind_chain_wraps_mask_outside_budget() -> None:
