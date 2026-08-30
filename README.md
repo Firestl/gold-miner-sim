@@ -87,6 +87,14 @@ the per-model evaluation output is the across-map episode std
 (`std_episode` in the JSON output); the across-training-seed std is a
 separate aggregate reported by `scripts/run_ablation.py`.
 
+## Geometry Oracle baseline (Milestone 8)
+
+`scripts/oracle_baseline.py` is a deterministic, observation-only policy. It
+uses the public hook geometry and the Full benchmark observation to predict
+the first object intersected by the current legal ray, with target priority
+GOLD → DIAMOND → ROCK. It does not train a model or read per-episode state
+from the environment.
+
 ## Commands
 
 Training-related scripts need the `train` dependency group
@@ -134,6 +142,13 @@ uv run --group train python scripts/eval_dqn.py --model models/ablation/blind/se
 
 # Compare FIRE angles of a paired Full/Blind model on selected maps (headless)
 uv run --group train python scripts/replay_ablation.py --full-model models/ablation/full/seed_0.zip --blind-model models/ablation/blind/seed_0.zip
+
+# M8 observation-only Geometry Oracle over the benchmark maps (seeds 1000-1099)
+uv run python scripts/oracle_baseline.py --episodes 100 --seed 1000
+
+# Trace FIRE decisions for a selected map, or open the human renderer
+uv run python scripts/oracle_baseline.py --episodes 1 --seed 1000 --trace
+uv run python scripts/oracle_baseline.py --episodes 1 --seed 1000 --render
 ```
 
 The evaluation output includes `mean_random`, `mean_dqn`, and
