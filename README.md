@@ -8,14 +8,13 @@ one physics tick (1/60 s).
 
 - `GoldMinerEnv(map_mode="fixed")` — the default and the V0 contract:
   GOLD/DIAMOND/ROCK always spawn at the same fixed centers.
-  `scripts/demo_episode.py` still uses the fixed map.
 - `GoldMinerEnv(map_mode="random")` — every `reset(seed=s)` draws 3 of
   the 12 `RANDOM_SPAWN_POINTS` without replacement, one each for
   GOLD/DIAMOND/ROCK. Only the initial positions vary; object properties,
   the observation contract, physics and determinism are unchanged, and a
   given seed always reproduces the same map.
 
-Training uses the random map; the demo stays on the fixed map. The current
+Training uses the random map. The current
 Milestone 6 benchmark adds a three-FIRE episode budget outside the physics
 environment, so the policy receives a 27th observation value containing the
 normalized FIREs remaining.
@@ -38,9 +37,9 @@ across runs if it is scored on exactly these maps. Both scripts report
 
 ## Decision timing
 
-- Milestones 2-3 trained and evaluated on `DecisionIntervalWrapper`
-  (`src/gold_miner_sim/wrappers.py`): every agent action is repeated for
-  a fixed 10 physics ticks per `step()`. It is kept as a baseline.
+- Milestones 2-3 trained and evaluated on `DecisionIntervalWrapper`:
+  every agent action was repeated for a fixed 10 physics ticks per
+  `step()`.
 - Milestone 4 used `SwingDecisionWrapper`: the agent only decides while
   the hook is SWINGING. `WAIT` advances the simulation by up to 10 ticks;
   `FIRE` automatically plays out the whole extend/retract round trip and
@@ -85,7 +84,7 @@ evaluated deterministically on the same 100 benchmark maps (seeds 1000–1099),
 and compared per seed as `paired_delta = full_mean - blind_mean`. `std` in
 the per-model evaluation output is the across-map episode std
 (`std_episode` in the JSON output); the across-training-seed std is a
-separate aggregate reported by `scripts/run_ablation.py`.
+separate aggregate computed from the paired per-seed results.
 
 ## Geometry Oracle baseline (Milestone 8)
 
@@ -110,9 +109,7 @@ Run the frozen recipe sequentially for seeds 0–4 with
 `scripts/run_strong_dqn.py`. After the recipe and best checkpoints are fixed,
 `scripts/eval_strong_dqn.py --split validation` evaluates maps 1000–1099 and
 `scripts/eval_strong_dqn.py --split test` evaluates the held-out maps
-2000–2099. `scripts/replay_strong_dqn.py` replays a checkpoint on selected
-maps with per-episode firing statistics (fires, WAITs before each FIRE,
-FIRE angles); add `--render` to watch it play.
+2000–2099.
 
 ## Commands
 
@@ -120,12 +117,6 @@ Training-related scripts need the `train` dependency group
 (`uv run --group train ...`).
 
 ```bash
-# Watch a full 60 s fixed-map episode in a Pygame window (~60 s real time)
-uv run python scripts/demo_episode.py
-
-# Run the same episode headless at full speed
-uv run python scripts/demo_episode.py --headless
-
 # M6 random-policy baseline over the benchmark maps (seeds 1000-1099)
 uv run --group train python scripts/random_baseline.py --episodes 100 --seed 1000
 
@@ -151,16 +142,9 @@ uv run --group train python scripts/eval_dqn.py --model models/dqn_gold_miner_fi
 uv run --group train python scripts/train_dqn.py --observation full --timesteps 200000 --seed 0
 uv run --group train python scripts/train_dqn.py --observation blind --timesteps 200000 --seed 0
 
-# Run the full paired experiment (10 sequential 200k runs, seeds 0-4) and
-# write the paired summary to runs/ablation/results.json
-uv run --group train python scripts/run_ablation.py
-
 # Evaluate one ablation model on the benchmark maps (match the training mode!
 # --model is required with --observation blind)
 uv run --group train python scripts/eval_dqn.py --model models/ablation/blind/seed_0.zip --observation blind --episodes 100 --seed 1000 --json-output runs/ablation/blind/seed_0/eval.json
-
-# Compare FIRE angles of a paired Full/Blind model on selected maps (headless)
-uv run --group train python scripts/replay_ablation.py --full-model models/ablation/full/seed_0.zip --blind-model models/ablation/blind/seed_0.zip
 
 # M8 observation-only Geometry Oracle over the benchmark maps (seeds 1000-1099)
 uv run python scripts/oracle_baseline.py --episodes 100 --seed 1000
@@ -173,9 +157,6 @@ uv run --group train python scripts/run_strong_dqn.py
 
 # M10 held-out evaluation, only after freezing the recipe/checkpoints
 uv run --group train python scripts/eval_strong_dqn.py --split test
-
-# M10 replay a checkpoint with firing-behavior stats (add --render to watch)
-uv run --group train python scripts/replay_strong_dqn.py --maps 1000 1007 1042
 
 # Trace FIRE decisions for a selected map, or open the human renderer
 uv run python scripts/oracle_baseline.py --episodes 1 --seed 1000 --trace

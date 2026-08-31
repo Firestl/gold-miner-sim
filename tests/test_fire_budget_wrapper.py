@@ -12,10 +12,8 @@ from numpy.typing import NDArray
 
 from gold_miner_sim.env import FIRE, WAIT, GoldMinerEnv
 from gold_miner_sim.wrappers import (
-    DecisionIntervalWrapper,
     FireBudgetWrapper,
     SwingAdvanceDecisionWrapper,
-    SwingDecisionWrapper,
 )
 
 
@@ -61,23 +59,7 @@ class ScriptedBudgetEnv(gymnasium.Env[NDArray[np.float32], int]):
         return observation, reward, terminated, truncated, dict(info)
 
 
-@pytest.mark.parametrize("bad_action", [0.0, 1.0])
-def test_decision_interval_rejects_float_actions(
-    bad_action: float,
-) -> None:
-    inner = ScriptedBudgetEnv([])
-    wrapped = DecisionIntervalWrapper(inner)
-    wrapped.reset()
-
-    with pytest.raises(ValueError):
-        wrapped.step(cast("int | np.integer[Any]", bad_action))
-
-    assert inner.actions == []
-
-
-@pytest.mark.parametrize(
-    "wrapper_cls", [SwingDecisionWrapper, SwingAdvanceDecisionWrapper]
-)
+@pytest.mark.parametrize("wrapper_cls", [SwingAdvanceDecisionWrapper])
 def test_swing_fire_supports_nested_time_limit(wrapper_cls: Any) -> None:
     inner = GoldMinerEnv()
     limited = gymnasium.wrappers.TimeLimit(inner, max_episode_steps=1_000)

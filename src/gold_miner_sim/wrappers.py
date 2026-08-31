@@ -1,19 +1,16 @@
-"""Minimal Gymnasium wrappers batching physics ticks per agent decision.
+"""Minimal Gymnasium wrappers for the frozen Gold Miner benchmark chain.
 
-``DecisionIntervalWrapper`` advances the underlying environment by exactly
-``DECISION_INTERVAL`` physics ticks per ``step()``: the first tick uses the
-agent's action, the remaining ticks use WAIT (0). Rewards of all executed
-ticks are summed; the loop stops early as soon as any underlying tick ends.
+``SwingAdvanceDecisionWrapper`` is the decision wrapper: the agent only
+decides while the hook is SWINGING. ``step(WAIT)`` advances the underlying
+environment by up to ``SWING_WAIT_INTERVAL`` WAIT ticks, ``step(FIRE)``
+auto-plays the whole extend/retract round trip, and after a completed FIRE
+cycle the wrapper swings on for another ``ADVANCE_INTERVAL`` WAIT ticks
+before returning, so the next decision is never taken at the original
+firing angle (anti angle-pinning; see the class docstring).
 
-``SwingDecisionWrapper`` is a Gold Miner specific wrapper whose ``WAIT``
-decision behaves like the above, while its ``FIRE`` decision automatically
-runs until the hook returns to the swinging phase (variable-length
-transition; see the class docstring).
-
-``SwingAdvanceDecisionWrapper`` keeps those semantics but, after a
-completed FIRE cycle, swings on for another ``ADVANCE_INTERVAL`` WAIT
-ticks before returning, so the next decision is never taken at the
-original firing angle (anti angle-pinning; see the class docstring).
+``FireBudgetWrapper`` limits each episode to ``max_fires`` FIRE decisions
+and appends the normalized remaining budget to the observation (see the
+class docstring).
 
 ``ObjectPositionMaskWrapper`` is a pure observation post-processor: it
 zeros the GOLD/DIAMOND/ROCK x/y slots of the 27-dimensional benchmark
@@ -48,7 +45,6 @@ from gold_miner_sim.env import (
     HookState,
 )
 
-DECISION_INTERVAL = 10  # Physics ticks executed per agent decision (1/6 s).
 SWING_WAIT_INTERVAL = 10  # Max physics ticks executed per WAIT decision.
 ADVANCE_INTERVAL = 10  # Post-FIRE SWINGING WAIT ticks before returning.
 
@@ -68,145 +64,29 @@ OBJECT_POLAR_BLOCKS = ((8, 9, 13), (14, 15, 19), (20, 21, 25))
 _WrapperT = gymnasium.Wrapper[NDArray[np.float32], int, NDArray[np.float32], int]
 
 
-class DecisionIntervalWrapper(_WrapperT):
-    """Repeat each agent action for ``DECISION_INTERVAL`` physics ticks.
-
-    ``step(action)`` runs one underlying tick with the given action, then
-    up to ``DECISION_INTERVAL - 1`` further ticks with WAIT. Rewards of all
-    executed ticks are summed; execution stops immediately once an
-    underlying tick reports ``terminated`` or ``truncated``. The returned
-    observation, info and end flags come from the last executed tick.
-    Action and observation spaces are inherited from the wrapped env.
-    """
-
-    def step(
-        self, action: int | np.integer[Any]
-    ) -> tuple[NDArray[np.float32], float, bool, bool, dict[str, Any]]:
-        if not self.action_space.contains(action):
-            raise ValueError(
-                f"invalid action {action!r}, expected 0 (WAIT) or 1 (FIRE)"
-            )
-
-        total_reward = 0.0
-        for i in range(DECISION_INTERVAL):
-            tick_action = int(action) if i == 0 else WAIT
-            obs, reward, terminated, truncated, info = self.env.step(tick_action)
-            total_reward += float(reward)
-            if terminated or truncated:
-                break
-        return obs, total_reward, terminated, truncated, info
-
-    def reset(
-        self,
-        *,
-        seed: int | None = None,
-        options: dict[str, Any] | None = None,
-    ) -> tuple[NDArray[np.float32], dict[str, Any]]:
-        return self.env.reset(seed=seed, options=options)
-
-
-class SwingDecisionWrapper(gymnasium.Wrapper):
-    """Gold Miner wrapper: the agent only decides while the hook swings.
-
-    The underlying hook state machine accepts FIRE only in ``SWINGING``.
-    This wrapper lifts that invariant to the decision level: except for
-    the tick that ends the episode, every ``step()`` returns with the
-    underlying hook back in ``HookState.SWINGING``. The agent therefore
-    never has to reason about EXTENDING / RETRACT_* phases.
-
-    ``step(WAIT)`` executes at most ``SWING_WAIT_INTERVAL`` underlying
-    WAIT ticks, summing their rewards and stopping at the first tick that
-    reports ``terminated`` or ``truncated``. While waiting, the hook stays
-    SWINGING, so this is equivalent to ``DecisionIntervalWrapper.step(WAIT)``.
-
-    ``step(FIRE)`` executes one underlying FIRE tick (SWINGING ->
-    EXTENDING) and then automatically keeps issuing WAIT ticks until the
-    hook re-enters ``SWINGING``. It returns at the exact tick the hook
-    becomes SWINGING again -- never one tick later -- or at the first tick
-    that ends the episode, whichever comes first. Rewards of all executed
-    ticks are summed; the observation, info and end flags come from the
-    last executed tick (e.g. a fully recovered DIAMOND yields reward 500
-    from a single ``step(FIRE)`` call, an empty round trip yields 0, and a
-    timeout before recovery yields whatever was scored so far).
-
-    Transitions are therefore variable-length by design; no duration-aware
-    discounting or tick-count correction is applied. Actions are validated
-    with ``action_space.contains`` — the same strict ``Discrete(2)``
-    contract as the underlying env, which rejects e.g. float actions that
-    compare equal to WAIT/FIRE — and never silently act as WAIT.
-    Action and observation spaces are inherited from the env.
-    """
-
-    # This wrapper only ever wraps GoldMinerEnv and reads its game state
-    # (hook_state) directly; the annotation narrows the gymnasium base
-    # attribute for static typing.
-    env: GoldMinerEnv
-
-    def __init__(self, env: GoldMinerEnv) -> None:
-        super().__init__(env)
-
-    def step(
-        self, action: int | np.integer[Any]
-    ) -> tuple[NDArray[np.float32], float, bool, bool, dict[str, Any]]:
-        # contains() matches the underlying env: ``action == WAIT`` would
-        # also accept floats like 0.0/1.0 that Discrete(2) does not contain.
-        if not self.action_space.contains(action):
-            raise ValueError(
-                f"invalid action {action!r}, expected 0 (WAIT) or 1 (FIRE)"
-            )
-
-        total_reward = 0.0
-        if action == FIRE:
-            # First tick: SWINGING -> EXTENDING (angle frozen from here on).
-            obs, reward, terminated, truncated, info = self.env.step(FIRE)
-            total_reward += reward
-            hook_env = cast(GoldMinerEnv, self.env.unwrapped)
-            # Auto-advance until the hook is back at the top; stop at the
-            # exact SWINGING tick or at the first episode-ending tick.
-            while not (terminated or truncated) and (
-                hook_env.hook_state is not HookState.SWINGING
-            ):
-                obs, reward, terminated, truncated, info = self.env.step(WAIT)
-                total_reward += reward
-            return obs, total_reward, terminated, truncated, info
-
-        for _ in range(SWING_WAIT_INTERVAL):
-            obs, reward, terminated, truncated, info = self.env.step(WAIT)
-            total_reward += reward
-            if terminated or truncated:
-                break
-        return obs, total_reward, terminated, truncated, info
-
-    def reset(
-        self,
-        *,
-        seed: int | None = None,
-        options: dict[str, Any] | None = None,
-    ) -> tuple[NDArray[np.float32], dict[str, Any]]:
-        return self.env.reset(seed=seed, options=options)
-
-
 class SwingAdvanceDecisionWrapper(gymnasium.Wrapper):
     """Gold Miner wrapper: after a FIRE cycle, swing on before deciding.
 
-    Same decision semantics as :class:`SwingDecisionWrapper`, plus one
-    rule: once a FIRE decision's extend/retract cycle has completed and the
-    hook is back in ``HookState.SWINGING``, this wrapper keeps issuing WAIT
-    for another ``ADVANCE_INTERVAL`` physics ticks before returning. The
-    next decision observation therefore sits at a swung-on angle instead of
-    the original firing angle, which removes the structural angle-pinning
-    loop observed in Milestone 4 (FIRE -> identical observation -> FIRE
-    again at the same angle). The advance reuses the underlying swing
-    physics, boundary reflection at -70/+70 deg included; the wrapper never
-    computes angles itself.
+    The agent only decides while the hook is SWINGING. Once a FIRE
+    decision's extend/retract cycle has completed and the hook is back in
+    ``HookState.SWINGING``, this wrapper keeps issuing WAIT for another
+    ``ADVANCE_INTERVAL`` physics ticks before returning. The next decision
+    observation therefore sits at a swung-on angle instead of the original
+    firing angle, which removes the structural angle-pinning loop observed
+    in Milestone 4 (FIRE -> identical observation -> FIRE again at the same
+    angle). The advance reuses the underlying swing physics, boundary
+    reflection at -70/+70 deg included; the wrapper never computes angles
+    itself.
 
     ``step(WAIT)`` executes at most ``SWING_WAIT_INTERVAL`` underlying WAIT
-    ticks, exactly as ``SwingDecisionWrapper.step(WAIT)``. ``step(FIRE)``
-    returns immediately when the episode ends during the FIRE cycle (no
-    advance is executed) or, otherwise, after the ``ADVANCE_INTERVAL``
-    advance ticks, cutting the advance short at the first episode-ending
-    tick. Rewards of all executed ticks are summed; the observation, info
-    and end flags come from the last executed tick.
+    ticks. ``step(FIRE)`` executes one underlying FIRE tick (SWINGING ->
+    EXTENDING) and then automatically keeps issuing WAIT ticks until the
+    hook re-enters ``SWINGING``; it returns immediately when the episode
+    ends during the FIRE cycle (no advance is executed) or, otherwise,
+    after the ``ADVANCE_INTERVAL`` advance ticks, cutting the advance short
+    at the first episode-ending tick. Rewards of all executed ticks are
+    summed; the observation, info and end flags come from the last executed
+    tick.
 
     Transitions are variable-length by design; no duration-aware
     discounting or tick-count correction is applied. Actions are validated
@@ -236,9 +116,9 @@ class SwingAdvanceDecisionWrapper(gymnasium.Wrapper):
 
         total_reward = 0.0
         if action == FIRE:
-            # Phase A -- the FIRE cycle, identical to SwingDecisionWrapper:
-            # one FIRE tick, then WAIT ticks until the exact tick the hook is
-            # back SWINGING or the first episode-ending tick.
+            # Phase A -- the FIRE cycle: one FIRE tick, then WAIT ticks until
+            # the exact tick the hook is back SWINGING or the first
+            # episode-ending tick.
             obs, reward, terminated, truncated, info = self.env.step(FIRE)
             total_reward += reward
             hook_env = cast(GoldMinerEnv, self.env.unwrapped)

@@ -1,8 +1,8 @@
 """``SwingAdvanceDecisionWrapper`` 行为测试（Milestone 5，issue #9）。
 
-在 ``SwingDecisionWrapper`` 语义之上增加一条规则：FIRE 的完整出钩/
-回收周期正常结束并回到 SWINGING 后，再自动推进
-``ADVANCE_INTERVAL = 10`` 个 WAIT physics ticks 才返回。核心不变量：
+FIRE 决策自动完成完整出钩/回收周期；周期正常结束并回到 SWINGING 后，
+再自动推进 ``ADVANCE_INTERVAL = 10`` 个 WAIT physics ticks 才返回。
+核心不变量：
 （1）除 episode 结束的那次返回外，每次 ``step()`` 返回时底层 hook 仍
 必须处于 ``HookState.SWINGING``；（2）FIRE 正常返回时角度已离开原
 发射角（angle pinning 结构性消除，约 ±10°，非边界场景）。
@@ -43,20 +43,19 @@ from gold_miner_sim.wrappers import (
     ADVANCE_INTERVAL,
     SWING_WAIT_INTERVAL,
     SwingAdvanceDecisionWrapper,
-    SwingDecisionWrapper,
 )
 
 
 # ---------------------------------------------------------------------------
-# 14.1 WAIT 等价性：一次决策 == 裸环境连跑 10 个 WAIT tick == SDW.step(WAIT)
+# 14.1 WAIT 等价性：一次决策 == 裸环境连跑 10 个 WAIT tick
 # ---------------------------------------------------------------------------
 def test_wait_matches_ten_bare_wait_ticks() -> None:
-    """目的：WAIT 语义与 SwingDecisionWrapper 完全一致（推进 10 tick）。
+    """目的：WAIT 决策与裸环境依次执行 10 次 step(WAIT) 完全一致
+    （恰好推进 10 tick，不多不少）。
 
-    输入：三个相同 seed 的 fixed map 环境：新 wrapper 执行 step(WAIT)、
-    SwingDecisionWrapper 执行 step(WAIT)、裸环境依次执行 10 次
-    step(WAIT)。
-    输出：三者 observation 逐位相等；reward（均 0）、terminated/
+    输入：两个相同 seed 的 fixed map 环境：wrapper 执行一次
+    step(WAIT)、裸环境依次执行 10 次 step(WAIT)。
+    输出：两者 observation 逐位相等；reward（均 0）、terminated/
     truncated（均 False）、info 相等；angle（-60°）、hook_state（均
     SWINGING）、rope_length、remaining_time 全部一致；
     ADVANCE_INTERVAL == SWING_WAIT_INTERVAL == 10。
@@ -68,10 +67,6 @@ def test_wait_matches_ten_bare_wait_ticks() -> None:
     wrapped.reset(seed=0)
     obs_w, reward_w, terminated_w, truncated_w, info_w = wrapped.step(WAIT)
 
-    sdw = SwingDecisionWrapper(GoldMinerEnv())
-    sdw.reset(seed=0)
-    obs_s, reward_s, terminated_s, truncated_s, info_s = sdw.step(WAIT)
-
     env_b = GoldMinerEnv()
     env_b.reset(seed=0)
     obs_b: NDArray[np.float32] = np.zeros(26, dtype=np.float32)
@@ -81,11 +76,10 @@ def test_wait_matches_ten_bare_wait_ticks() -> None:
         obs_b, reward_b, terminated_b, truncated_b, info_b = env_b.step(WAIT)
 
     assert np.array_equal(obs_w, obs_b)  # 与裸环境逐位相等
-    assert np.array_equal(obs_w, obs_s)  # 与 Milestone 4 wrapper 逐位相等
-    assert reward_w == reward_b == reward_s == 0.0
-    assert terminated_w is terminated_b is terminated_s is False
-    assert truncated_w is truncated_b is truncated_s is False
-    assert info_w == info_b == info_s
+    assert reward_w == reward_b == 0.0
+    assert terminated_w is terminated_b is False
+    assert truncated_w is truncated_b is False
+    assert info_w == info_b
 
     assert inner.hook_state is HookState.SWINGING is env_b.hook_state
     assert inner.angle == pytest.approx(env_b.angle)  # -60°

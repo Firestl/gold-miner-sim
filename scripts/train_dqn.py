@@ -5,9 +5,9 @@ layouts: every reset draws the three spawn points from RANDOM_SPAWN_POINTS
 through the Gymnasium-seeded RNG. The environment chain comes from
 ``gold_miner_sim.benchmark.make_benchmark_env``:
 ``GoldMinerEnv -> SwingAdvanceDecisionWrapper -> FireBudgetWrapper ->
-Monitor``: like Milestone 4's SwingDecisionWrapper the agent decides only
+Monitor``: ``SwingAdvanceDecisionWrapper`` lets the agent decide only
 while the hook is SWINGING (WAIT advances up to 10 physics ticks, FIRE
-auto-plays the whole extend/retract round trip), but after a completed
+auto-plays the whole extend/retract round trip), and after a completed
 FIRE cycle the wrapper swings on for another 10 WAIT ticks before
 returning, so the next decision is never taken at the original firing
 angle (anti angle-pinning). The outer wrapper limits each episode to three
