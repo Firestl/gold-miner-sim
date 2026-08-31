@@ -4,6 +4,14 @@ Usage:
     uv run python scripts/oracle_baseline.py --episodes 100 --seed 1000
     uv run python scripts/oracle_baseline.py --episodes 1 --seed 1000 --trace
     uv run python scripts/oracle_baseline.py --episodes 1 --seed 1000 --render
+    uv run python scripts/oracle_baseline.py --episodes 100 --seed 3000 --geometry rot3
+    uv run python scripts/oracle_baseline.py --episodes 100 --seed 3000 --geometry rot3_scale105
+
+``--geometry`` selects the M11 evaluation spawn pool (Issue #21): ``id``
+(the default) keeps the historical ``make_benchmark_env("full")`` path
+bitwise unchanged, while ``rot3`` / ``rot3_scale105`` build the same
+wrapper chain over the transformed pool via ``make_geometry_eval_env``.
+The oracle policy itself is identical for every geometry.
 """
 
 from __future__ import annotations
@@ -15,7 +23,11 @@ import gymnasium
 import numpy as np
 from numpy.typing import NDArray
 
-from gold_miner_sim.benchmark import make_benchmark_env
+from gold_miner_sim.benchmark import (
+    GEOMETRY_MODES,
+    make_benchmark_env,
+    make_geometry_eval_env,
+)
 from gold_miner_sim.env import FIRE, MAX_ANGLE
 from gold_miner_sim.oracle import (
     OBJECT_SLOTS,
@@ -216,6 +228,15 @@ def main() -> None:
         help="render the episodes in a human window",
     )
     parser.add_argument(
+        "--geometry",
+        choices=list(GEOMETRY_MODES),
+        default="id",
+        help=(
+            "evaluation spawn pool (default: id = the historical "
+            "RANDOM_SPAWN_POINTS benchmark pool)"
+        ),
+    )
+    parser.add_argument(
         "--trace",
         action="store_true",
         help="print every FIRE decision and target center angle",
@@ -224,10 +245,14 @@ def main() -> None:
     if args.episodes <= 0:
         parser.error("--episodes must be positive")
 
-    env = make_benchmark_env(
-        observation_mode="full",
-        render_mode="human" if args.render else None,
-    )
+    render_mode = "human" if args.render else None
+    # "id" keeps the historical make_benchmark_env("full") path completely
+    # unchanged; the transformed pools use the M11 geometry factory (same
+    # wrapper chain, only the spawn pool differs).
+    if args.geometry == "id":
+        env = make_benchmark_env(observation_mode="full", render_mode=render_mode)
+    else:
+        env = make_geometry_eval_env(args.geometry, render_mode=render_mode)
     try:
         results = [
             run_episode(env, map_seed=args.seed + index, trace=args.trace)
