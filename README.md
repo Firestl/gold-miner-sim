@@ -110,7 +110,9 @@ Run the frozen recipe sequentially for seeds 0–4 with
 `scripts/run_strong_dqn.py`. After the recipe and best checkpoints are fixed,
 `scripts/eval_strong_dqn.py --split validation` evaluates maps 1000–1099 and
 `scripts/eval_strong_dqn.py --split test` evaluates the held-out maps
-2000–2099.
+2000–2099. `scripts/replay_strong_dqn.py` replays a checkpoint on selected
+maps with per-episode firing statistics (fires, WAITs before each FIRE,
+FIRE angles); add `--render` to watch it play.
 
 ## Commands
 
@@ -171,6 +173,9 @@ uv run --group train python scripts/run_strong_dqn.py
 
 # M10 held-out evaluation, only after freezing the recipe/checkpoints
 uv run --group train python scripts/eval_strong_dqn.py --split test
+
+# M10 replay a checkpoint with firing-behavior stats (add --render to watch)
+uv run --group train python scripts/replay_strong_dqn.py --maps 1000 1007 1042
 
 # Trace FIRE decisions for a selected map, or open the human renderer
 uv run python scripts/oracle_baseline.py --episodes 1 --seed 1000 --trace
