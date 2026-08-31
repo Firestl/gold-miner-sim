@@ -111,6 +111,51 @@ Run the frozen recipe sequentially for seeds 0–4 with
 `scripts/eval_strong_dqn.py --split test` evaluates the held-out maps
 2000–2099.
 
+## Geometry generalization (Milestone 11)
+
+Issue #21 freezes the five M10 best checkpoints and only changes the
+evaluation spawn pool: `id` (the unchanged `RANDOM_SPAWN_POINTS` control),
+`rot3` (the whole pool rotated +3 degrees around the anchor) and
+`rot3_scale105` (+3 degrees and radial distance ×1.05). Maps 3000–3099 are
+the paired evaluation seeds; the same map seed selects the same three pool
+indices under every mode.
+
+1. Oracle solvability gate — the M8 oracle must score mean 800, 100% full
+   score and 0 miss on all three modes before any DQN OOD score is
+   interpreted (`--geometry id` keeps the historical benchmark path
+   unchanged):
+
+```bash
+uv run python scripts/oracle_baseline.py --episodes 100 --seed 3000 --geometry id
+uv run python scripts/oracle_baseline.py --episodes 100 --seed 3000 --geometry rot3
+uv run python scripts/oracle_baseline.py --episodes 100 --seed 3000 --geometry rot3_scale105
+```
+
+2. Frozen DQN geometry evaluation — 5 training seeds × 3 modes × 100 maps,
+   `predict(obs, deterministic=True)` only, results in
+   `runs/geometry_generalization/results.json` (with per-seed drop/retention
+   tables and per-map paired deltas):
+
+```bash
+uv run --group train python scripts/eval_geometry_generalization.py
+```
+
+3. Behavior replay — per-FIRE trace lines (current angle, active center
+   angles, predicted first hit, collected slot, score after fire) instead of
+   the full evaluation:
+
+```bash
+uv run --group train python scripts/eval_geometry_generalization.py --trace --trace-seeds 0,3 --trace-maps 3000,3007,3042
+```
+
+Checkpoint freeze contract: the evaluator checks every requested
+`models/strong_dqn/seed_<n>/best_model.zip` before starting and exits with
+a non-zero status listing all missing files. It never retrains, never
+fine-tunes and never skips a missing checkpoint. Each FIRE transition is
+classified as `productive` (an object active flag went 1→0), `timeout_fire`
+(no change and the transition ended by timeout) or `miss` (no change,
+episode continued); timeouts are never counted as plain misses.
+
 ## Commands
 
 Training-related scripts need the `train` dependency group

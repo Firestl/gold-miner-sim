@@ -3,15 +3,18 @@
 One ``step()`` advances the simulation by exactly one physics tick (1/60 s).
 No wall-clock time, no reward shaping. The map layout depends on
 ``map_mode``: ``"fixed"`` (default) is fully deterministic, while
-``"random"`` draws spawn points from RANDOM_SPAWN_POINTS through the
-Gymnasium-seeded ``np_random`` RNG, so a given seed always reproduces the
-same maps.
+``"random"`` draws three spawn points without replacement from
+RANDOM_SPAWN_POINTS (or from a caller-supplied ``spawn_points`` pool)
+through the Gymnasium-seeded ``np_random`` RNG, so a given seed always
+reproduces the same maps.
 """
 
 from __future__ import annotations
 
 import enum
 import math
+import numbers
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -118,6 +121,45 @@ RANDOM_SPAWN_POINTS = (
 )
 
 
+def _freeze_spawn_pool(
+    spawn_points: Sequence[tuple[float, float]],
+) -> tuple[tuple[float, float], ...]:
+    """Validate a caller-supplied random-mode spawn pool and freeze it.
+
+    Returns a fresh ``tuple`` of ``(x, y)`` float pairs so later mutation of
+    the caller's sequence cannot affect the environment. Raises
+    ``ValueError`` unless ``spawn_points`` is an iterable of at least three
+    numeric length-2 ``(x, y)`` elements. Coordinates are converted with
+    ``float()`` (value-exact, never rounded).
+    """
+    try:
+        points = list(spawn_points)
+    except TypeError:
+        raise ValueError(
+            f"spawn_points must be an iterable of (x, y) pairs, got {spawn_points!r}"
+        ) from None
+    if len(points) < 3:
+        raise ValueError(
+            f"spawn_points must contain at least 3 points, got {len(points)}"
+        )
+    frozen: list[tuple[float, float]] = []
+    for point in points:
+        try:
+            x, y = point
+        except (TypeError, ValueError):
+            raise ValueError(
+                f"each spawn point must be an (x, y) pair, got {point!r}"
+            ) from None
+        if not isinstance(x, numbers.Real) or not isinstance(y, numbers.Real):
+            # ValueError is the documented issue #21 contract for pool
+            # validation (same as map_mode/render_mode), not a TypeError.
+            raise ValueError(  # noqa: TRY004
+                f"spawn point coordinates must be numeric, got {point!r}"
+            )
+        frozen.append((float(x), float(y)))
+    return tuple(frozen)
+
+
 def sweep_circle_hit(
     x0: float,
     y0: float,
@@ -168,7 +210,12 @@ class GoldMinerEnv(gymnasium.Env[NDArray[np.float32], int]):
 
     metadata = {"render_modes": ["human"], "render_fps": 60}  # noqa: RUF012
 
-    def __init__(self, render_mode: str | None = None, map_mode: str = "fixed") -> None:
+    def __init__(
+        self,
+        render_mode: str | None = None,
+        map_mode: str = "fixed",
+        spawn_points: Sequence[tuple[float, float]] | None = None,
+    ) -> None:
         super().__init__()
         if render_mode not in (None, "human"):
             raise ValueError(
@@ -176,8 +223,21 @@ class GoldMinerEnv(gymnasium.Env[NDArray[np.float32], int]):
             )
         if map_mode not in ("fixed", "random"):
             raise ValueError(f"map_mode must be 'fixed' or 'random', got {map_mode!r}")
+        if map_mode == "fixed" and spawn_points is not None:
+            raise ValueError(
+                "spawn_points is only supported with map_mode='random', got "
+                f"map_mode='fixed' with spawn_points={spawn_points!r}"
+            )
         self.render_mode = render_mode
         self.map_mode = map_mode
+        # Spawn pool for map_mode="random": either the historical
+        # RANDOM_SPAWN_POINTS constant (spawn_points=None, bitwise-identical
+        # legacy behavior) or a caller-supplied pool frozen at construction
+        # time so later caller mutation cannot affect the environment.
+        if spawn_points is None:
+            self._spawn_pool: tuple[tuple[float, float], ...] = RANDOM_SPAWN_POINTS
+        else:
+            self._spawn_pool = _freeze_spawn_pool(spawn_points)
         self.action_space = spaces.Discrete(2)
         # 8 hook/global values + 3 objects * 6 values, all normalized to [-1, 1].
         self.observation_space = spaces.Box(
@@ -229,10 +289,13 @@ class GoldMinerEnv(gymnasium.Env[NDArray[np.float32], int]):
             # Three distinct spawn points without replacement, drawn from the
             # Gymnasium-seeded RNG so a given seed always yields the same
             # maps. Coordinates are used verbatim (exact tuple constants).
+            # self._spawn_pool is RANDOM_SPAWN_POINTS unless a custom pool was
+            # injected, so the legacy RNG call is unchanged in the default
+            # path (same choice() arguments, same single RNG draw).
             indices = self.np_random.choice(
-                len(RANDOM_SPAWN_POINTS), size=3, replace=False
+                len(self._spawn_pool), size=3, replace=False
             )
-            positions = tuple(RANDOM_SPAWN_POINTS[int(i)] for i in indices)
+            positions = tuple(self._spawn_pool[int(i)] for i in indices)
         self.objects = [
             GameObject(
                 obj_type,
